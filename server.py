@@ -1,5 +1,3 @@
-Allez sur : https://github.com/Moka2310/gamly-backend/blob/main/server.py
-Cliquez ✏️ et remplacez TOUT par ce code EXACT :
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
