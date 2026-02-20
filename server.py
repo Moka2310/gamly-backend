@@ -1,5 +1,4 @@
-Action: $ cat /app/backend/server.py
-Observation: from fastapi import FastAPI, APIRouter, HTTPException, Depends, status
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import HTMLResponse
 from dotenv import load_dotenv
@@ -1052,6 +1051,123 @@ async def block_user(block_data: BlockUserRequest, current_user: dict = Depends(
         "blocked_id": block_data.user_id,
         "timestamp": datetime.utcnow()
     }
-    await db.blocks
-... [stdout truncated]
-Exit code: 0
+    await db.blocks.insert_one(block_doc)
+    
+    return {"success": True, "message": "Utilisateur bloqué"}
+
+@api_router.delete("/block/{user_id}")
+async def unblock_user(user_id: str, current_user: dict = Depends(get_current_user)):
+    """Unblock a user"""
+    current_id = str(current_user["_id"])
+    
+    result = await db.blocks.delete_one({
+        "blocker_id": current_id,
+        "blocked_id": user_id
+    })
+    
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Blocage non trouvé")
+    
+    return {"success": True, "message": "Utilisateur débloqué"}
+
+# ===================== SUBSCRIPTION ENDPOINTS =====================
+
+@api_router.get("/subscription")
+async def get_subscription(current_user: dict = Depends(get_current_user)):
+    """Get subscription status"""
+    today = date.today().isoformat()
+    
+    # Reset daily swipes if needed
+    if current_user.get("last_swipe_reset") != today:
+        await db.users.update_one(
+            {"_id": current_user["_id"]},
+            {"$set": {"swipes_today": 0, "last_swipe_reset": today}}
+        )
+        swipes_today = 0
+    else:
+        swipes_today = current_user.get("swipes_today", 0)
+    
+    is_premium = current_user.get("is_premium", False)
+    max_swipes = -1 if is_premium else 5  # -1 = unlimited
+    
+    return {
+        "type": "premium" if is_premium else "free",
+        "swipes_today": swipes_today,
+        "swipes_remaining": -1 if is_premium else max(0, 3 - swipes_today),
+        "max_daily_swipes": max_swipes,
+        "is_premium": is_premium,
+        "price_weekly": 5.00,
+        "currency": "USD"
+    }
+
+@api_router.post("/subscription/upgrade")
+async def upgrade_subscription(current_user: dict = Depends(get_current_user)):
+    """Upgrade to premium (mock - no real payment)"""
+    await db.users.update_one(
+        {"_id": current_user["_id"]},
+        {"$set": {"is_premium": True}}
+    )
+    
+    return {
+        "success": True,
+        "message": "Félicitations! Vous êtes maintenant Premium!",
+        "is_premium": True
+    }
+
+@api_router.post("/subscription/cancel")
+async def cancel_subscription(current_user: dict = Depends(get_current_user)):
+    """Cancel premium subscription (mock)"""
+    await db.users.update_one(
+        {"_id": current_user["_id"]},
+        {"$set": {"is_premium": False}}
+    )
+    
+    return {
+        "success": True,
+        "message": "Abonnement annulé",
+        "is_premium": False
+    }
+
+# ===================== DELETE MATCH =====================
+
+@api_router.delete("/matches/{match_id}")
+async def delete_match(match_id: str, current_user: dict = Depends(get_current_user)):
+    """Delete a match and all associated messages"""
+    user_id = str(current_user["_id"])
+    
+    # Verify user is part of this match
+    match = await db.matches.find_one({"_id": ObjectId(match_id)})
+    if not match:
+        raise HTTPException(status_code=404, detail="Match non trouvé")
+    
+    if user_id not in [match["user1_id"], match["user2_id"]]:
+        raise HTTPException(status_code=403, detail="Accès non autorisé")
+    
+    # Delete all messages
+    await db.messages.delete_many({"match_id": match_id})
+    
+    # Delete match
+    await db.matches.delete_one({"_id": ObjectId(match_id)})
+    
+    return {"success": True, "message": "Match supprimé"}
+
+# ===================== HEALTH CHECK =====================
+
+@api_router.get("/health")
+async def health_check():
+    return {"status": "healthy", "timestamp": datetime.utcnow()}
+
+# Include the router in the main app
+app.include_router(api_router)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_credentials=True,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.on_event("shutdown")
+async def shutdown_db_client():
+    client.close()
