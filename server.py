@@ -13,7 +13,23 @@ from datetime import datetime, date, timedelta
 import jwt
 import bcrypt
 from bson import ObjectId
-
+@app.get("/api/delete-account", response_class=HTMLResponse)
+async def delete_account_page():
+    html = """
+    <!DOCTYPE html>
+    <html>
+    <head><title>Supprimer mon compte - GAMLY</title>
+    <style>body{font-family:sans-serif;background:#1a1a2e;color:white;display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0}.container{background:rgba(255,255,255,0.1);padding:40px;border-radius:20px;max-width:500px;text-align:center}h1{color:#FF1493}p{color:#aaa;line-height:1.6}.warning{background:rgba(255,0,0,0.2);padding:15px;border-radius:10px;color:#ff6b6b}ol{text-align:left;color:#ccc}</style>
+    </head>
+    <body><div class="container">
+    <h1>Supprimer mon compte GAMLY</h1>
+    <p class="warning">Cette action est irreversible. Toutes vos donnees seront supprimees.</p>
+    <h3>Pour supprimer votre compte :</h3>
+    <ol><li>Ouvrez l'application GAMLY</li><li>Allez dans "Mon Profil"</li><li>Cliquez sur "Supprimer mon compte"</li><li>Confirmez la suppression</li></ol>
+    <p>Contact: support@gamly.app</p>
+    </div></body></html>
+    """
+    return HTMLResponse(content=html)
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
