@@ -1003,11 +1003,7 @@ async def get_subscription(current_user: dict = Depends(get_current_user)):
         }
     }
 
-try:
-    from emergentintegrations.payments.stripe.checkout import StripeCheckout, CheckoutSessionResponse, CheckoutStatusResponse, CheckoutSessionRequest
-    STRIPE_AVAILABLE = True
-except ImportError:
-    STRIPE_AVAILABLE = False
+import stripe as stripe_lib
 
 # ===================== STRIPE PAYMENT ENDPOINTS =====================
 
@@ -1023,8 +1019,6 @@ class CheckoutRequest(BaseModel):
 
 @api_router.post("/payments/create-checkout")
 async def create_checkout(data: CheckoutRequest, current_user: dict = Depends(get_current_user)):
-    if not STRIPE_AVAILABLE:
-        raise HTTPException(status_code=503, detail="Paiements Stripe non disponibles")
     user_id = str(current_user["_id"])
     package = PAYMENT_PACKAGES.get(data.package_id)
     if not package:
@@ -1032,20 +1026,30 @@ async def create_checkout(data: CheckoutRequest, current_user: dict = Depends(ge
     stripe_key = os.environ.get("STRIPE_API_KEY")
     if not stripe_key:
         raise HTTPException(status_code=500, detail="Stripe non configure")
+    stripe_lib.api_key = stripe_key
     success_url = f"{data.origin_url}/payment-success?session_id={{CHECKOUT_SESSION_ID}}"
     cancel_url = f"{data.origin_url}/subscription"
-    webhook_url = f"{str(data.origin_url)}/api/webhook/stripe"
-    stripe_checkout = StripeCheckout(api_key=stripe_key, webhook_url=webhook_url)
-    checkout_request = CheckoutSessionRequest(
-        amount=float(package["amount"]),
-        currency="usd",
-        success_url=success_url,
-        cancel_url=cancel_url,
-        metadata={"user_id": user_id, "package_id": data.package_id, "package_type": package["type"]}
-    )
-    session: CheckoutSessionResponse = await stripe_checkout.create_checkout_session(checkout_request)
+    try:
+        session = stripe_lib.checkout.Session.create(
+            payment_method_types=["card"],
+            line_items=[{
+                "price_data": {
+                    "currency": "usd",
+                    "product_data": {"name": package["description"]},
+                    "unit_amount": int(package["amount"] * 100),
+                },
+                "quantity": 1,
+            }],
+            mode="payment",
+            success_url=success_url,
+            cancel_url=cancel_url,
+            client_reference_id=user_id,
+            metadata={"user_id": user_id, "package_id": data.package_id, "package_type": package["type"]},
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur Stripe: {str(e)}")
     await db.payment_transactions.insert_one({
-        "session_id": session.session_id,
+        "session_id": session.id,
         "user_id": user_id,
         "package_id": data.package_id,
         "amount": package["amount"],
@@ -1054,12 +1058,10 @@ async def create_checkout(data: CheckoutRequest, current_user: dict = Depends(ge
         "metadata": {"package_type": package["type"]},
         "created_at": datetime.utcnow()
     })
-    return {"url": session.url, "session_id": session.session_id}
+    return {"url": session.url, "session_id": session.id}
 
 @api_router.get("/payments/status/{session_id}")
 async def check_payment_status(session_id: str, current_user: dict = Depends(get_current_user)):
-    if not STRIPE_AVAILABLE:
-        raise HTTPException(status_code=503, detail="Paiements Stripe non disponibles")
     user_id = str(current_user["_id"])
     transaction = await db.payment_transactions.find_one({"session_id": session_id, "user_id": user_id})
     if not transaction:
@@ -1067,43 +1069,58 @@ async def check_payment_status(session_id: str, current_user: dict = Depends(get
     if transaction.get("payment_status") == "paid":
         return {"status": "complete", "payment_status": "paid", "already_processed": True}
     stripe_key = os.environ.get("STRIPE_API_KEY")
-    webhook_url = "https://placeholder.com/api/webhook/stripe"
-    stripe_checkout = StripeCheckout(api_key=stripe_key, webhook_url=webhook_url)
-    status: CheckoutStatusResponse = await stripe_checkout.get_checkout_status(session_id)
-    if status.payment_status == "paid" and transaction.get("payment_status") != "paid":
-        await db.payment_transactions.update_one({"session_id": session_id}, {"$set": {"payment_status": "paid", "paid_at": datetime.utcnow()}})
-        package = PAYMENT_PACKAGES.get(transaction["package_id"])
-        if package:
-            if package["type"] == "subscription":
-                await db.users.update_one({"_id": ObjectId(user_id)}, {"$set": {"is_premium": True}})
-            elif package["type"] == "pack":
-                await db.users.update_one({"_id": ObjectId(user_id)}, {"$inc": {"swipes_remaining": package["coins"]}})
-    elif status.payment_status != "paid":
-        await db.payment_transactions.update_one({"session_id": session_id}, {"$set": {"payment_status": status.payment_status}})
-    return {"status": status.status, "payment_status": status.payment_status}
+    if not stripe_key:
+        raise HTTPException(status_code=500, detail="Stripe non configure")
+    stripe_lib.api_key = stripe_key
+    try:
+        session = stripe_lib.checkout.Session.retrieve(session_id)
+        payment_status = session.payment_status  # "paid", "unpaid", "no_payment_required"
+        if payment_status == "paid" and transaction.get("payment_status") != "paid":
+            await db.payment_transactions.update_one({"session_id": session_id}, {"$set": {"payment_status": "paid", "paid_at": datetime.utcnow()}})
+            package = PAYMENT_PACKAGES.get(transaction["package_id"])
+            if package:
+                if package["type"] == "subscription":
+                    await db.users.update_one({"_id": ObjectId(user_id)}, {"$set": {"is_premium": True}})
+                elif package["type"] == "pack":
+                    await db.users.update_one({"_id": ObjectId(user_id)}, {"$inc": {"swipes_remaining": package["coins"]}})
+        else:
+            await db.payment_transactions.update_one({"session_id": session_id}, {"$set": {"payment_status": payment_status}})
+        return {"status": session.status, "payment_status": payment_status}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur Stripe: {str(e)}")
 
 @api_router.post("/webhook/stripe")
 async def stripe_webhook(request: Request):
-    if not STRIPE_AVAILABLE:
-        return {"status": "error", "detail": "Stripe non disponible"}
     body = await request.body()
     signature = request.headers.get("Stripe-Signature", "")
     stripe_key = os.environ.get("STRIPE_API_KEY")
-    webhook_url = str(request.url)
-    stripe_checkout = StripeCheckout(api_key=stripe_key, webhook_url=webhook_url)
+    webhook_secret = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
+    if not stripe_key:
+        return {"status": "error", "detail": "Stripe non configure"}
+    stripe_lib.api_key = stripe_key
     try:
-        event = await stripe_checkout.handle_webhook(body, signature)
-        if event.payment_status == "paid":
-            transaction = await db.payment_transactions.find_one({"session_id": event.session_id})
-            if transaction and transaction.get("payment_status") != "paid":
-                await db.payment_transactions.update_one({"session_id": event.session_id}, {"$set": {"payment_status": "paid", "paid_at": datetime.utcnow()}})
-                package = PAYMENT_PACKAGES.get(transaction["package_id"])
-                user_id = transaction["user_id"]
-                if package:
-                    if package["type"] == "subscription":
-                        await db.users.update_one({"_id": ObjectId(user_id)}, {"$set": {"is_premium": True}})
-                    elif package["type"] == "pack":
-                        await db.users.update_one({"_id": ObjectId(user_id)}, {"$inc": {"swipes_remaining": package["coins"]}})
+        if webhook_secret:
+            event = stripe_lib.Webhook.construct_event(body, signature, webhook_secret)
+        else:
+            event = stripe_lib.Event.construct_from(
+                stripe_lib.util.convert_to_stripe_object(stripe_lib.decode_stripe_object(body.decode("utf-8"))),
+                stripe_key
+            )
+        if event["type"] == "checkout.session.completed":
+            session = event["data"]["object"]
+            session_id = session["id"]
+            payment_status = session.get("payment_status", "")
+            if payment_status == "paid":
+                transaction = await db.payment_transactions.find_one({"session_id": session_id})
+                if transaction and transaction.get("payment_status") != "paid":
+                    await db.payment_transactions.update_one({"session_id": session_id}, {"$set": {"payment_status": "paid", "paid_at": datetime.utcnow()}})
+                    package = PAYMENT_PACKAGES.get(transaction["package_id"])
+                    user_id = transaction["user_id"]
+                    if package:
+                        if package["type"] == "subscription":
+                            await db.users.update_one({"_id": ObjectId(user_id)}, {"$set": {"is_premium": True}})
+                        elif package["type"] == "pack":
+                            await db.users.update_one({"_id": ObjectId(user_id)}, {"$inc": {"swipes_remaining": package["coins"]}})
         return {"status": "ok"}
     except Exception as e:
         return {"status": "error", "detail": str(e)}
