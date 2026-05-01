@@ -1049,7 +1049,14 @@ async def create_checkout(data: CheckoutRequest, current_user: dict = Depends(ge
             client_reference_id=user_id,
             metadata={"user_id": user_id, "package_id": data.package_id, "package_type": package["type"]},
         )
+    except stripe_lib.error.AuthenticationError as e:
+        logger.error(f"Stripe auth error: {e}")
+        raise HTTPException(status_code=500, detail="Clé Stripe invalide. Vérifiez STRIPE_API_KEY dans Render.")
+    except stripe_lib.error.PermissionError as e:
+        logger.error(f"Stripe permission error: {e}")
+        raise HTTPException(status_code=500, detail="Compte Stripe non activé pour les paiements live. Allez sur dashboard.stripe.com pour activer.")
     except Exception as e:
+        logger.error(f"Stripe error {type(e).__name__}: {e}")
         raise HTTPException(status_code=500, detail=f"Erreur Stripe: {str(e)}")
     await db.payment_transactions.insert_one({
         "session_id": session.id,
