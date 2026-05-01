@@ -8,5 +8,4 @@ fastapi
   python-multipart
   email-validator
   resend
-  emergentintegrations
   stripe
