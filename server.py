@@ -515,15 +515,20 @@ async def login(user_data: UserLogin):
 
 # ===================== PASSWORD RESET ENDPOINTS =====================
 
-reset_codes = {}
-
 @api_router.post("/auth/forgot-password")
 async def forgot_password(data: PasswordResetRequest):
+    import random
     user = await db.users.find_one({"email": data.email})
     if not user:
         return {"message": "Si cet email existe, un code de réinitialisation a été envoyé."}
-    import random
     code = str(random.randint(100000, 999999))
+    expires = datetime.utcnow() + timedelta(minutes=10)
+    # Store in MongoDB (survives server restarts)
+    await db.reset_codes.update_one(
+        {"email": data.email},
+        {"$set": {"code": code, "expires": expires}},
+        upsert=True
+    )
     html_content = f"""
     <div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;background:#0A0A0F;color:#E0E0E0;padding:30px;border-radius:12px;">
         <h1 style="color:#FF1493;text-align:center;">GAMLY</h1>
@@ -542,23 +547,21 @@ async def forgot_password(data: PasswordResetRequest):
             "html": html_content
         }
         await asyncio.to_thread(resend.Emails.send, params)
+        logger.info(f"Reset email sent to {data.email}")
     except Exception as e:
-        logger.error(f"Failed to send reset email: {e}")
-        raise HTTPException(status_code=500, detail="Erreur lors de l'envoi de l'email. Réessayez plus tard.")
-    reset_codes[data.email] = {
-        "code": code,
-        "expires": datetime.utcnow() + timedelta(minutes=10)
-    }
+        logger.error(f"Failed to send reset email to {data.email}: {e}")
+        await db.reset_codes.delete_one({"email": data.email})
+        raise HTTPException(status_code=500, detail=f"Erreur lors de l'envoi de l'email: {str(e)}")
     return {"message": "Si cet email existe, un code de réinitialisation a été envoyé."}
 
 @api_router.post("/auth/reset-password")
 async def reset_password(data: PasswordResetConfirm):
-    reset_data = reset_codes.get(data.email)
+    reset_data = await db.reset_codes.find_one({"email": data.email})
     if not reset_data:
         raise HTTPException(status_code=400, detail="Aucun code de réinitialisation trouvé")
     if datetime.utcnow() > reset_data["expires"]:
-        del reset_codes[data.email]
-        raise HTTPException(status_code=400, detail="Code expiré")
+        await db.reset_codes.delete_one({"email": data.email})
+        raise HTTPException(status_code=400, detail="Code expiré. Demandez un nouveau code.")
     if reset_data["code"] != data.reset_code:
         raise HTTPException(status_code=400, detail="Code incorrect")
     if len(data.new_password) < 6:
@@ -570,7 +573,7 @@ async def reset_password(data: PasswordResetConfirm):
         {"_id": user["_id"]},
         {"$set": {"password_hash": hash_password(data.new_password)}}
     )
-    del reset_codes[data.email]
+    await db.reset_codes.delete_one({"email": data.email})
     return {"message": "Mot de passe mis à jour avec succès!"}
 
 @api_router.delete("/auth/delete-account")
