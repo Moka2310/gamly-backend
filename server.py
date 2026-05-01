@@ -1026,7 +1026,7 @@ async def create_checkout(data: CheckoutRequest, current_user: dict = Depends(ge
     package = PAYMENT_PACKAGES.get(data.package_id)
     if not package:
         raise HTTPException(status_code=400, detail="Package invalide")
-    stripe_key = os.environ.get("STRIPE_API_KEY")
+    stripe_key = os.environ.get("STRIPE_API_KEY", "").strip()
     if not stripe_key:
         raise HTTPException(status_code=500, detail="Stripe non configure")
     stripe_lib.api_key = stripe_key
@@ -1078,7 +1078,7 @@ async def check_payment_status(session_id: str, current_user: dict = Depends(get
         raise HTTPException(status_code=404, detail="Transaction non trouvee")
     if transaction.get("payment_status") == "paid":
         return {"status": "complete", "payment_status": "paid", "already_processed": True}
-    stripe_key = os.environ.get("STRIPE_API_KEY")
+    stripe_key = os.environ.get("STRIPE_API_KEY", "").strip()
     if not stripe_key:
         raise HTTPException(status_code=500, detail="Stripe non configure")
     stripe_lib.api_key = stripe_key
@@ -1103,7 +1103,7 @@ async def check_payment_status(session_id: str, current_user: dict = Depends(get
 async def stripe_webhook(request: Request):
     body = await request.body()
     signature = request.headers.get("Stripe-Signature", "")
-    stripe_key = os.environ.get("STRIPE_API_KEY")
+    stripe_key = os.environ.get("STRIPE_API_KEY", "").strip()
     webhook_secret = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
     if not stripe_key:
         return {"status": "error", "detail": "Stripe non configure"}
