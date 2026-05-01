@@ -1031,7 +1031,6 @@ async def create_checkout(data: CheckoutRequest, current_user: dict = Depends(ge
     cancel_url = f"{data.origin_url}/subscription"
     try:
         session = stripe_lib.checkout.Session.create(
-            payment_method_types=["card"],
             line_items=[{
                 "price_data": {
                     "currency": "usd",
@@ -1041,6 +1040,7 @@ async def create_checkout(data: CheckoutRequest, current_user: dict = Depends(ge
                 "quantity": 1,
             }],
             mode="payment",
+            automatic_payment_methods={"enabled": True},
             success_url=success_url,
             cancel_url=cancel_url,
             client_reference_id=user_id,
