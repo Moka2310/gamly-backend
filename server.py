@@ -37,7 +37,7 @@ ACCESS_TOKEN_EXPIRE_HOURS = 24 * 7  # 7 days
 # Banned words filter (French + English profanity)
 BANNED_WORDS = [
     # French profanity
-    "putain", "merde", "connard", "connasse", "salope", "salaud", "enculé", "nique", 
+    "putain", "merde", "connard", "connasse", "salope", "salaud", "enculé", "nique",
     "niquer", "batard", "bâtard", "fdp", "ntm", "pd", "pédé", "tapette", "gouine",
     "enfoiré", "pute", "bordel", "couille", "bite", "chier", "encule", "cul",
     # English profanity
@@ -259,7 +259,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         user_id = payload.get("sub")
         if not user_id:
             raise HTTPException(status_code=401, detail="Invalid token")
-        
+
         user = await db.users.find_one({"_id": ObjectId(user_id)})
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
@@ -316,10 +316,7 @@ async def delete_account_page():
                 text-align: center;
                 border: 1px solid rgba(255,255,255,0.1);
             }
-            .logo {
-                font-size: 48px;
-                margin-bottom: 20px;
-            }
+            .logo { font-size: 48px; margin-bottom: 20px; }
             h1 {
                 font-size: 24px;
                 margin-bottom: 20px;
@@ -327,11 +324,7 @@ async def delete_account_page():
                 -webkit-background-clip: text;
                 -webkit-text-fill-color: transparent;
             }
-            p {
-                color: #a0a0a0;
-                margin-bottom: 20px;
-                line-height: 1.6;
-            }
+            p { color: #a0a0a0; margin-bottom: 20px; line-height: 1.6; }
             .warning {
                 background: rgba(255,0,0,0.1);
                 border: 1px solid rgba(255,0,0,0.3);
@@ -339,20 +332,9 @@ async def delete_account_page():
                 padding: 15px;
                 margin-bottom: 20px;
             }
-            .warning-text {
-                color: #ff6b6b;
-                font-weight: 500;
-            }
-            .form-group {
-                margin-bottom: 15px;
-                text-align: left;
-            }
-            label {
-                display: block;
-                margin-bottom: 5px;
-                color: #ccc;
-                font-size: 14px;
-            }
+            .warning-text { color: #ff6b6b; font-weight: 500; }
+            .form-group { margin-bottom: 15px; text-align: left; }
+            label { display: block; margin-bottom: 5px; color: #ccc; font-size: 14px; }
             input {
                 width: 100%;
                 padding: 12px;
@@ -362,75 +344,27 @@ async def delete_account_page():
                 color: white;
                 font-size: 16px;
             }
-            input:focus {
-                outline: none;
-                border-color: #FF1493;
-            }
-            .btn {
-                width: 100%;
-                padding: 15px;
-                border: none;
-                border-radius: 10px;
-                font-size: 16px;
-                font-weight: 600;
-                cursor: pointer;
-                margin-top: 10px;
-            }
-            .btn-danger {
-                background: linear-gradient(90deg, #ff4444, #cc0000);
-                color: white;
-            }
-            .btn-danger:hover {
-                opacity: 0.9;
-            }
-            .success {
-                background: rgba(0,255,0,0.1);
-                border: 1px solid rgba(0,255,0,0.3);
-                border-radius: 10px;
-                padding: 20px;
-                color: #4ade80;
-                display: none;
-            }
-            .error {
-                background: rgba(255,0,0,0.1);
-                border: 1px solid rgba(255,0,0,0.3);
-                border-radius: 10px;
-                padding: 15px;
-                color: #ff6b6b;
-                margin-top: 15px;
-                display: none;
-            }
-            .steps {
-                text-align: left;
-                margin-top: 30px;
-                padding-top: 20px;
-                border-top: 1px solid rgba(255,255,255,0.1);
-            }
-            .steps h3 {
-                margin-bottom: 15px;
-                color: #ccc;
-            }
-            .steps ol {
-                padding-left: 20px;
-                color: #a0a0a0;
-            }
-            .steps li {
-                margin-bottom: 10px;
-            }
+            input:focus { outline: none; border-color: #FF1493; }
+            .btn { width: 100%; padding: 15px; border: none; border-radius: 10px; font-size: 16px; font-weight: 600; cursor: pointer; margin-top: 10px; }
+            .btn-danger { background: linear-gradient(90deg, #ff4444, #cc0000); color: white; }
+            .btn-danger:hover { opacity: 0.9; }
+            .success { background: rgba(0,255,0,0.1); border: 1px solid rgba(0,255,0,0.3); border-radius: 10px; padding: 20px; color: #4ade80; display: none; }
+            .error { background: rgba(255,0,0,0.1); border: 1px solid rgba(255,0,0,0.3); border-radius: 10px; padding: 15px; color: #ff6b6b; margin-top: 15px; display: none; }
+            .steps { text-align: left; margin-top: 30px; padding-top: 20px; border-top: 1px solid rgba(255,255,255,0.1); }
+            .steps h3 { margin-bottom: 15px; color: #ccc; }
+            .steps ol { padding-left: 20px; color: #a0a0a0; }
+            .steps li { margin-bottom: 10px; }
         </style>
     </head>
     <body>
         <div class="container">
             <div class="logo">🎮</div>
             <h1>Supprimer mon compte GAMLY</h1>
-            
             <div id="form-container">
                 <p>Pour supprimer votre compte, veuillez vous connecter avec vos identifiants.</p>
-                
                 <div class="warning">
                     <p class="warning-text">⚠️ Attention : Cette action est irréversible. Toutes vos données, matchs et messages seront définitivement supprimés.</p>
                 </div>
-                
                 <form id="delete-form">
                     <div class="form-group">
                         <label for="email">Email</label>
@@ -442,15 +376,12 @@ async def delete_account_page():
                     </div>
                     <button type="submit" class="btn btn-danger">Supprimer mon compte</button>
                 </form>
-                
                 <div id="error-message" class="error"></div>
             </div>
-            
             <div id="success-message" class="success">
                 <h2>✅ Compte supprimé</h2>
                 <p>Votre compte a été supprimé avec succès. Toutes vos données ont été effacées.</p>
             </div>
-            
             <div class="steps">
                 <h3>Vous pouvez également supprimer votre compte depuis l'app :</h3>
                 <ol>
@@ -461,7 +392,6 @@ async def delete_account_page():
                 </ol>
             </div>
         </div>
-        
         <script>
             document.getElementById('delete-form').addEventListener('submit', async (e) => {
                 e.preventDefault();
@@ -470,40 +400,22 @@ async def delete_account_page():
                 const errorDiv = document.getElementById('error-message');
                 const successDiv = document.getElementById('success-message');
                 const formContainer = document.getElementById('form-container');
-                
                 errorDiv.style.display = 'none';
-                
                 try {
-                    // First login to get token
                     const loginResponse = await fetch('/api/auth/login', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ email, password })
                     });
-                    
-                    if (!loginResponse.ok) {
-                        throw new Error('Email ou mot de passe incorrect');
-                    }
-                    
+                    if (!loginResponse.ok) throw new Error('Email ou mot de passe incorrect');
                     const loginData = await loginResponse.json();
-                    
-                    // Delete account
                     const deleteResponse = await fetch('/api/auth/delete-account', {
                         method: 'DELETE',
-                        headers: { 
-                            'Authorization': `Bearer ${loginData.token}`,
-                            'Content-Type': 'application/json'
-                        }
+                        headers: { 'Authorization': `Bearer ${loginData.token}`, 'Content-Type': 'application/json' }
                     });
-                    
-                    if (!deleteResponse.ok) {
-                        throw new Error('Erreur lors de la suppression');
-                    }
-                    
-                    // Show success
+                    if (!deleteResponse.ok) throw new Error('Erreur lors de la suppression');
                     formContainer.style.display = 'none';
                     successDiv.style.display = 'block';
-                    
                 } catch (error) {
                     errorDiv.textContent = error.message;
                     errorDiv.style.display = 'block';
@@ -526,98 +438,10 @@ async def privacy_policy():
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Politique de Confidentialité - GAMLY</title>
-        <style>
-            * { margin: 0; padding: 0; box-sizing: border-box; }
-            body {
-                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                background: linear-gradient(135deg, #0a0a0f 0%, #1a1a2e 100%);
-                min-height: 100vh;
-                color: #e0e0e0;
-                line-height: 1.6;
-                padding: 20px;
-            }
-            .container {
-                max-width: 800px;
-                margin: 0 auto;
-                background: rgba(30, 30, 50, 0.9);
-                border-radius: 20px;
-                padding: 40px;
-                box-shadow: 0 10px 40px rgba(0,0,0,0.5);
-            }
-            .logo { text-align: center; margin-bottom: 30px; }
-            .logo h1 {
-                font-size: 2.5em;
-                background: linear-gradient(90deg, #ff006e, #8338ec, #3a86ff);
-                -webkit-background-clip: text;
-                -webkit-text-fill-color: transparent;
-            }
-            h2 { color: #ff006e; margin: 25px 0 15px; font-size: 1.3em; }
-            p, li { margin-bottom: 10px; color: #b0b0b0; }
-            ul { padding-left: 20px; }
-            .date { text-align: center; color: #666; margin-top: 30px; font-size: 0.9em; }
-            a { color: #3a86ff; }
-        </style>
     </head>
     <body>
-        <div class="container">
-            <div class="logo">
-                <h1>GAMLY</h1>
-                <p>Politique de Confidentialité</p>
-            </div>
-            
-            <h2>1. Introduction</h2>
-            <p>Bienvenue sur GAMLY, l'application de rencontres pour gamers. Nous accordons une grande importance à la protection de vos données personnelles. Cette politique explique comment nous collectons, utilisons et protégeons vos informations.</p>
-            
-            <h2>2. Données collectées</h2>
-            <p>Nous collectons les données suivantes :</p>
-            <ul>
-                <li><strong>Informations de profil :</strong> pseudo, âge, pays, photo de profil (ou avatar), bio, jeux favoris, centres d'intérêt</li>
-                <li><strong>Informations de connexion :</strong> email et mot de passe (crypté)</li>
-                <li><strong>Préférences de jeu :</strong> plateforme (PC, PlayStation, Xbox, Nintendo, Mobile), disponibilités</li>
-                <li><strong>Communications :</strong> messages échangés avec d'autres utilisateurs</li>
-            </ul>
-            
-            <h2>3. Utilisation des données</h2>
-            <p>Vos données sont utilisées pour :</p>
-            <ul>
-                <li>Créer et gérer votre compte</li>
-                <li>Vous proposer des profils compatibles</li>
-                <li>Permettre la messagerie entre utilisateurs matchés</li>
-                <li>Améliorer nos services</li>
-            </ul>
-            
-            <h2>4. Partage des données</h2>
-            <p>Nous ne vendons jamais vos données personnelles. Vos informations ne sont partagées qu'avec :</p>
-            <ul>
-                <li>Les autres utilisateurs (uniquement les informations de votre profil public)</li>
-                <li>Nos prestataires techniques (hébergement, base de données) sous contrat de confidentialité</li>
-            </ul>
-            
-            <h2>5. Sécurité</h2>
-            <p>Nous mettons en œuvre des mesures de sécurité pour protéger vos données :</p>
-            <ul>
-                <li>Mots de passe cryptés (bcrypt)</li>
-                <li>Connexions sécurisées (HTTPS)</li>
-                <li>Accès restreint aux données</li>
-            </ul>
-            
-            <h2>6. Vos droits</h2>
-            <p>Conformément au RGPD, vous avez le droit de :</p>
-            <ul>
-                <li>Accéder à vos données personnelles</li>
-                <li>Rectifier vos informations</li>
-                <li>Supprimer votre compte et toutes vos données</li>
-                <li>Exporter vos données</li>
-            </ul>
-            
-            <h2>7. Suppression du compte</h2>
-            <p>Vous pouvez supprimer votre compte à tout moment depuis l'application (Profil > Supprimer mon compte). Toutes vos données seront définitivement effacées.</p>
-            
-            <h2>8. Contact</h2>
-            <p>Pour toute question concernant cette politique, contactez-nous à : <a href="mailto:contact@gamly.app">contact@gamly.app</a></p>
-            
-            <p class="date">Dernière mise à jour : Février 2026</p>
-        </div>
+        <h1>GAMLY - Politique de Confidentialité</h1>
+        <p>Dernière mise à jour : Février 2026</p>
     </body>
     </html>
     """
@@ -627,17 +451,12 @@ async def privacy_policy():
 
 @api_router.post("/auth/register")
 async def register(user_data: UserCreate):
-    # Check if email exists
     existing = await db.users.find_one({"email": user_data.email})
     if existing:
         raise HTTPException(status_code=400, detail="Email déjà utilisé")
-    
-    # Check if nickname exists
     existing_nick = await db.users.find_one({"nickname": user_data.nickname})
     if existing_nick:
         raise HTTPException(status_code=400, detail="Nickname déjà utilisé")
-    
-    # Create user
     user_doc = {
         "email": user_data.email,
         "password_hash": hash_password(user_data.password),
@@ -653,17 +472,15 @@ async def register(user_data: UserCreate):
         "photo": None,
         "bio": None,
         "created_at": datetime.utcnow(),
-        "swipes_remaining": 10,  # 10 free swipes at account creation
+        "swipes_remaining": 10,
         "swipes_today": 0,
         "last_swipe_reset": date.today().isoformat(),
         "is_premium": False,
-        "coins": 0,  # purchased swipe coins
+        "coins": 0,
     }
-    
     result = await db.users.insert_one(user_doc)
     user_id = str(result.inserted_id)
     token = create_access_token(user_id)
-    
     return {
         "token": token,
         "user": {
@@ -676,22 +493,15 @@ async def register(user_data: UserCreate):
 
 @api_router.post("/auth/login")
 async def login(user_data: UserLogin):
-    # Clean input - mobile keyboards often add spaces or uppercase
     clean_email = user_data.email.strip().lower()
     clean_password = user_data.password.strip()
-    
     user = await db.users.find_one({"email": clean_email})
     if not user:
-        logger.warning(f"Login failed - email not found: '{clean_email}'")
         raise HTTPException(status_code=401, detail="Email ou mot de passe incorrect")
-    
     if not verify_password(clean_password, user["password_hash"]):
-        logger.warning(f"Login failed - wrong password for: '{clean_email}'")
         raise HTTPException(status_code=401, detail="Email ou mot de passe incorrect")
-    
     user_id = str(user["_id"])
     token = create_access_token(user_id)
-    
     return {
         "token": token,
         "user": {
@@ -705,35 +515,25 @@ async def login(user_data: UserLogin):
 
 # ===================== PASSWORD RESET ENDPOINTS =====================
 
-# Store reset codes in memory (in production, use Redis or database)
 reset_codes = {}
 
 @api_router.post("/auth/forgot-password")
 async def forgot_password(data: PasswordResetRequest):
-    """Request password reset - generates a code and sends it via email"""
     user = await db.users.find_one({"email": data.email})
     if not user:
         return {"message": "Si cet email existe, un code de réinitialisation a été envoyé."}
-    
     import random
     code = str(random.randint(100000, 999999))
-    
-    # Send email via Resend
     html_content = f"""
     <div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;background:#0A0A0F;color:#E0E0E0;padding:30px;border-radius:12px;">
-        <h1 style="color:#FF1493;text-align:center;margin-bottom:20px;">GAMLY</h1>
-        <p style="font-size:16px;margin-bottom:15px;">Bonjour,</p>
-        <p style="font-size:16px;margin-bottom:20px;">Voici votre code de réinitialisation de mot de passe :</p>
-        <div style="background:#1a1a2e;border:2px solid #FF1493;border-radius:10px;padding:20px;text-align:center;margin-bottom:20px;">
+        <h1 style="color:#FF1493;text-align:center;">GAMLY</h1>
+        <p>Voici votre code de réinitialisation :</p>
+        <div style="background:#1a1a2e;border:2px solid #FF1493;border-radius:10px;padding:20px;text-align:center;">
             <span style="font-size:32px;font-weight:bold;letter-spacing:8px;color:#FF1493;">{code}</span>
         </div>
-        <p style="font-size:14px;color:#888;">Ce code expire dans <strong>10 minutes</strong>.</p>
-        <p style="font-size:14px;color:#888;">Si vous n'avez pas demandé cette réinitialisation, ignorez cet email.</p>
-        <hr style="border:1px solid #333;margin:20px 0;">
-        <p style="font-size:12px;color:#666;text-align:center;">GAMLY - L'app de rencontres pour gamers</p>
+        <p style="color:#888;">Ce code expire dans <strong>10 minutes</strong>.</p>
     </div>
     """
-    
     try:
         params = {
             "from": SENDER_EMAIL,
@@ -742,79 +542,46 @@ async def forgot_password(data: PasswordResetRequest):
             "html": html_content
         }
         await asyncio.to_thread(resend.Emails.send, params)
-        logger.info(f"Password reset email sent to {data.email}")
     except Exception as e:
-        logger.error(f"Failed to send reset email to {data.email}: {e}")
+        logger.error(f"Failed to send reset email: {e}")
         raise HTTPException(status_code=500, detail="Erreur lors de l'envoi de l'email. Réessayez plus tard.")
-    
-    # Only store code after successful email send
     reset_codes[data.email] = {
         "code": code,
         "expires": datetime.utcnow() + timedelta(minutes=10)
     }
-    
     return {"message": "Si cet email existe, un code de réinitialisation a été envoyé."}
 
 @api_router.post("/auth/reset-password")
 async def reset_password(data: PasswordResetConfirm):
-    """Reset password with code"""
-    # Check if code exists and is valid
     reset_data = reset_codes.get(data.email)
     if not reset_data:
         raise HTTPException(status_code=400, detail="Aucun code de réinitialisation trouvé")
-    
     if datetime.utcnow() > reset_data["expires"]:
         del reset_codes[data.email]
         raise HTTPException(status_code=400, detail="Code expiré")
-    
     if reset_data["code"] != data.reset_code:
         raise HTTPException(status_code=400, detail="Code incorrect")
-    
-    # Validate new password
     if len(data.new_password) < 6:
         raise HTTPException(status_code=400, detail="Le mot de passe doit contenir au moins 6 caractères")
-    
-    # Update password
     user = await db.users.find_one({"email": data.email})
     if not user:
         raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
-    
     await db.users.update_one(
         {"_id": user["_id"]},
         {"$set": {"password_hash": hash_password(data.new_password)}}
     )
-    
-    # Remove used code
     del reset_codes[data.email]
-    
     return {"message": "Mot de passe mis à jour avec succès!"}
 
 @api_router.delete("/auth/delete-account")
 async def delete_account(current_user: dict = Depends(get_current_user)):
-    """Delete user account and all associated data"""
     user_id = current_user["_id"]
-    
-    # Delete all matches involving this user
-    await db.matches.delete_many({
-        "$or": [{"user1_id": str(user_id)}, {"user2_id": str(user_id)}]
-    })
-    
-    # Delete all messages involving this user
-    await db.messages.delete_many({
-        "$or": [{"sender_id": str(user_id)}, {"receiver_id": str(user_id)}]
-    })
-    
-    # Delete all swipes by this user
+    await db.matches.delete_many({"$or": [{"user1_id": str(user_id)}, {"user2_id": str(user_id)}]})
+    await db.messages.delete_many({"$or": [{"sender_id": str(user_id)}, {"receiver_id": str(user_id)}]})
     await db.swipes.delete_many({"swiper_id": str(user_id)})
-    
-    # Delete all swipes on this user
     await db.swipes.delete_many({"swiped_id": str(user_id)})
-    
-    # Delete the user account
     await db.users.delete_one({"_id": user_id})
-    
     logger.info(f"User account deleted: {user_id}")
-    
     return {"message": "Compte supprimé avec succès"}
 
 @api_router.get("/auth/me")
@@ -846,17 +613,11 @@ async def get_me(current_user: dict = Depends(get_current_user)):
 @api_router.put("/profile")
 async def update_profile(profile: UserProfile, current_user: dict = Depends(get_current_user)):
     update_data = {}
-    
     if profile.nickname is not None:
-        # Check if nickname is taken by another user
-        existing = await db.users.find_one({
-            "nickname": profile.nickname, 
-            "_id": {"$ne": current_user["_id"]}
-        })
+        existing = await db.users.find_one({"nickname": profile.nickname, "_id": {"$ne": current_user["_id"]}})
         if existing:
             raise HTTPException(status_code=400, detail="Nickname déjà utilisé")
         update_data["nickname"] = profile.nickname
-    
     if profile.age is not None:
         update_data["age"] = profile.age
     if profile.gender is not None:
@@ -889,14 +650,8 @@ async def update_profile(profile: UserProfile, current_user: dict = Depends(get_
         update_data["status"] = profile.status
     if profile.gaming_accounts is not None:
         update_data["gaming_accounts"] = profile.gaming_accounts
-    
     if update_data:
-        await db.users.update_one(
-            {"_id": current_user["_id"]},
-            {"$set": update_data}
-        )
-    
-    # Return updated user
+        await db.users.update_one({"_id": current_user["_id"]}, {"$set": update_data})
     updated_user = await db.users.find_one({"_id": current_user["_id"]})
     return {
         "id": str(updated_user["_id"]),
@@ -930,12 +685,10 @@ async def update_status(status: str, current_user: dict = Depends(get_current_us
     valid_statuses = ["online", "in_game", "busy", "offline"]
     if status not in valid_statuses:
         raise HTTPException(status_code=400, detail=f"Statut invalide. Utilisez: {valid_statuses}")
-    
     await db.users.update_one(
         {"_id": current_user["_id"]},
         {"$set": {"status": status, "last_active": datetime.utcnow()}}
     )
-    
     return {"status": status}
 
 # ===================== DISCOVER / SWIPE ENDPOINTS =====================
@@ -949,59 +702,39 @@ async def discover_profiles(
     game: Optional[str] = None,
     availability: Optional[List[str]] = None
 ):
-    """Get profiles to swipe on with optional filters"""
     user_id = current_user["_id"]
-    
-    # Get users already swiped
     swiped_ids = await db.swipes.distinct("swiped_user_id", {"swiper_id": str(user_id)})
     swiped_object_ids = [ObjectId(sid) for sid in swiped_ids if ObjectId.is_valid(sid)]
-    
-    # Get blocked users (both directions)
     blocked_by_me = await db.blocks.distinct("blocked_id", {"blocker_id": str(user_id)})
     blocked_me = await db.blocks.distinct("blocker_id", {"blocked_id": str(user_id)})
     blocked_ids = set(blocked_by_me + blocked_me)
     blocked_object_ids = [ObjectId(bid) for bid in blocked_ids if ObjectId.is_valid(bid)]
-    
-    # Exclude current user, swiped users, and blocked users
     exclude_ids = [user_id] + swiped_object_ids + blocked_object_ids
-    
-    # Build query with filters
     query = {
         "_id": {"$nin": exclude_ids},
         "photo": {"$ne": None},
         "age": {"$ne": None},
         "console": {"$ne": None}
     }
-    
-    # Apply optional filters
     if gender:
         query["gender"] = gender
     if country:
         query["country"] = country
     if language:
-        query["languages"] = language  # MongoDB will match if language is in the array
+        query["languages"] = language
     if game:
-        query["games"] = game  # MongoDB will match if game is in the array
-    
-    # Filter by availability periods (matin, midi, soir)
+        query["games"] = game
     if availability and len(availability) > 0:
         query["availability_periods"] = {"$in": availability}
-    
-    # Find profiles
     profiles = await db.users.find(query).limit(20).to_list(20)
-    
-    # Format profiles with common interests
     user_games = set(current_user.get("games", []))
     user_interests = set(current_user.get("interests", []))
-    
     result = []
     for profile in profiles:
         profile_games = set(profile.get("games", []))
         profile_interests = set(profile.get("interests", []))
-        
         common_games = list(user_games & profile_games)
         common_interests = list(user_interests & profile_interests)
-        
         result.append({
             "id": str(profile["_id"]),
             "nickname_hidden": mask_nickname(profile["nickname"]),
@@ -1024,42 +757,26 @@ async def discover_profiles(
             "common_interests": common_interests,
             "common_count": len(common_games) + len(common_interests)
         })
-    
     return result
 
 @api_router.post("/swipe")
 async def swipe(swipe_data: SwipeCreate, current_user: dict = Depends(get_current_user)):
-    """Process a swipe action"""
     user_id = str(current_user["_id"])
     today = date.today().isoformat()
-    
-    # Check and reset daily swipe count
     if current_user.get("last_swipe_reset") != today:
         await db.users.update_one(
             {"_id": current_user["_id"]},
             {"$set": {"swipes_today": 0, "last_swipe_reset": today}}
         )
         current_user["swipes_today"] = 0
-    
-    # Check swipe limit (10 free swipes total, then need coins or premium)
     if not current_user.get("is_premium", False):
         swipes_remaining = current_user.get("swipes_remaining", 0)
         coins = current_user.get("coins", 0)
         if swipes_remaining <= 0 and coins <= 0:
-            raise HTTPException(
-                status_code=403, 
-                detail="Plus de swipes disponibles. Achetez des swipes ou passez Premium!"
-            )
-    
-    # Check if already swiped
-    existing = await db.swipes.find_one({
-        "swiper_id": user_id,
-        "swiped_user_id": swipe_data.swiped_user_id
-    })
+            raise HTTPException(status_code=403, detail="Plus de swipes disponibles. Achetez des swipes ou passez Premium!")
+    existing = await db.swipes.find_one({"swiper_id": user_id, "swiped_user_id": swipe_data.swiped_user_id})
     if existing:
         raise HTTPException(status_code=400, detail="Déjà swipé sur ce profil")
-    
-    # Record swipe
     swipe_doc = {
         "swiper_id": user_id,
         "swiped_user_id": swipe_data.swiped_user_id,
@@ -1067,44 +784,25 @@ async def swipe(swipe_data: SwipeCreate, current_user: dict = Depends(get_curren
         "timestamp": datetime.utcnow()
     }
     await db.swipes.insert_one(swipe_doc)
-    
-    # Decrement swipe count (use free swipes first, then coins)
     if not current_user.get("is_premium", False):
         swipes_remaining = current_user.get("swipes_remaining", 0)
         if swipes_remaining > 0:
-            await db.users.update_one(
-                {"_id": current_user["_id"]},
-                {"$inc": {"swipes_remaining": -1, "swipes_today": 1}}
-            )
+            await db.users.update_one({"_id": current_user["_id"]}, {"$inc": {"swipes_remaining": -1, "swipes_today": 1}})
         else:
-            await db.users.update_one(
-                {"_id": current_user["_id"]},
-                {"$inc": {"coins": -1, "swipes_today": 1}}
-            )
+            await db.users.update_one({"_id": current_user["_id"]}, {"$inc": {"coins": -1, "swipes_today": 1}})
     else:
-        await db.users.update_one(
-            {"_id": current_user["_id"]},
-            {"$inc": {"swipes_today": 1}}
-        )
-    
-    # Check for match (if liked)
+        await db.users.update_one({"_id": current_user["_id"]}, {"$inc": {"swipes_today": 1}})
     is_match = False
     match_data = None
-    
     if swipe_data.action == "like":
-        # Check if other user also liked us
         other_swipe = await db.swipes.find_one({
             "swiper_id": swipe_data.swiped_user_id,
             "swiped_user_id": user_id,
             "action": "like"
         })
-        
-        # AUTO-MATCH FOR DEMO: If the swiped user is a demo profile, auto-like back
         demo_emails = ["sarah.gamer@example.com", "alex.pro@example.com", "luna.pcmaster@example.com"]
         swiped_user = await db.users.find_one({"_id": ObjectId(swipe_data.swiped_user_id)})
-        
         if swiped_user and swiped_user.get("email") in demo_emails and not other_swipe:
-            # Create automatic like from demo profile
             auto_swipe_doc = {
                 "swiper_id": swipe_data.swiped_user_id,
                 "swiped_user_id": user_id,
@@ -1112,39 +810,32 @@ async def swipe(swipe_data: SwipeCreate, current_user: dict = Depends(get_curren
                 "timestamp": datetime.utcnow()
             }
             await db.swipes.insert_one(auto_swipe_doc)
-            other_swipe = auto_swipe_doc  # Now there's a match!
-        
+            other_swipe = auto_swipe_doc
         if other_swipe:
             is_match = True
-            # Create match
             match_doc = {
                 "user1_id": user_id,
                 "user2_id": swipe_data.swiped_user_id,
                 "matched_at": datetime.utcnow()
             }
             match_result = await db.matches.insert_one(match_doc)
-            
-            # Get matched user details
             matched_user = await db.users.find_one({"_id": ObjectId(swipe_data.swiped_user_id)})
             if matched_user:
                 match_data = {
                     "match_id": str(match_result.inserted_id),
                     "user": {
                         "id": str(matched_user["_id"]),
-                        "nickname": matched_user["nickname"],  # Revealed!
+                        "nickname": matched_user["nickname"],
                         "photo": matched_user.get("photo"),
                         "console": matched_user.get("console")
                     },
-                    "your_nickname": current_user["nickname"]  # Your nickname for the other
+                    "your_nickname": current_user["nickname"]
                 }
-    
-    # Get remaining swipes
     updated_user = await db.users.find_one({"_id": current_user["_id"]})
     if updated_user.get("is_premium"):
         swipes_remaining = -1
     else:
         swipes_remaining = updated_user.get("swipes_remaining", 0) + updated_user.get("coins", 0)
-    
     return {
         "success": True,
         "is_match": is_match,
@@ -1157,44 +848,31 @@ async def swipe(swipe_data: SwipeCreate, current_user: dict = Depends(get_curren
 
 @api_router.get("/matches")
 async def get_matches(current_user: dict = Depends(get_current_user)):
-    """Get all matches for current user"""
     user_id = str(current_user["_id"])
-    
-    # Find matches where user is either user1 or user2
     matches = await db.matches.find({
-        "$or": [
-            {"user1_id": user_id},
-            {"user2_id": user_id}
-        ]
+        "$or": [{"user1_id": user_id}, {"user2_id": user_id}]
     }).sort("matched_at", -1).to_list(100)
-    
     result = []
     for match in matches:
-        # Get the other user
         other_user_id = match["user2_id"] if match["user1_id"] == user_id else match["user1_id"]
         other_user = await db.users.find_one({"_id": ObjectId(other_user_id)})
-        
         if other_user:
-            # Check if blocked
             is_blocked = await db.blocks.find_one({
                 "$or": [
                     {"blocker_id": user_id, "blocked_id": other_user_id},
                     {"blocker_id": other_user_id, "blocked_id": user_id}
                 ]
             })
-            
             if not is_blocked:
-                # Get last message
                 last_message = await db.messages.find_one(
                     {"match_id": str(match["_id"])},
                     sort=[("timestamp", -1)]
                 )
-                
                 result.append({
                     "id": str(match["_id"]),
                     "user": {
                         "id": str(other_user["_id"]),
-                        "nickname": other_user["nickname"],  # Revealed after match
+                        "nickname": other_user["nickname"],
                         "photo": other_user.get("photo"),
                         "console": other_user.get("console"),
                         "country": other_user.get("country"),
@@ -1209,27 +887,19 @@ async def get_matches(current_user: dict = Depends(get_current_user)):
                         "is_mine": last_message["sender_id"] == user_id if last_message else False
                     } if last_message else None
                 })
-    
     return result
 
 # ===================== MESSAGES ENDPOINTS =====================
 
 @api_router.get("/messages/{match_id}")
 async def get_messages(match_id: str, current_user: dict = Depends(get_current_user)):
-    """Get messages for a match"""
     user_id = str(current_user["_id"])
-    
-    # Verify user is part of this match
     match = await db.matches.find_one({"_id": ObjectId(match_id)})
     if not match:
         raise HTTPException(status_code=404, detail="Match non trouvé")
-    
     if user_id not in [match["user1_id"], match["user2_id"]]:
         raise HTTPException(status_code=403, detail="Accès non autorisé")
-    
-    # Get messages
     messages = await db.messages.find({"match_id": match_id}).sort("timestamp", 1).to_list(500)
-    
     return [{
         "id": str(msg["_id"]),
         "match_id": msg["match_id"],
@@ -1242,47 +912,27 @@ async def get_messages(match_id: str, current_user: dict = Depends(get_current_u
 
 @api_router.post("/messages/{match_id}")
 async def send_message(match_id: str, message: MessageCreate, current_user: dict = Depends(get_current_user)):
-    """Send a message in a match"""
     user_id = str(current_user["_id"])
-    
-    # Check for banned words (only for text messages)
     if message.message_type == "text" and contains_banned_words(message.content):
-        # Increment violation count
         violation_count = await increment_violation_count(user_id)
-        
-        # Log the violation
         await db.violations.insert_one({
             "user_id": user_id,
             "type": "banned_words",
             "content": message.content,
             "timestamp": datetime.utcnow()
         })
-        
-        # If 3+ violations, ban the account
         if violation_count >= 3:
             await db.users.update_one(
                 {"_id": ObjectId(user_id)},
                 {"$set": {"is_banned": True, "banned_at": datetime.utcnow()}}
             )
-            raise HTTPException(
-                status_code=403, 
-                detail="Votre compte a été suspendu pour comportement inapproprié répété. Contactez le support pour plus d'informations."
-            )
-        
-        raise HTTPException(
-            status_code=400, 
-            detail=f"Message bloqué: contenu inapproprié détecté. Attention: {3 - violation_count} avertissement(s) restant(s) avant suspension du compte."
-        )
-    
-    # Verify user is part of this match
+            raise HTTPException(status_code=403, detail="Votre compte a été suspendu pour comportement inapproprié répété.")
+        raise HTTPException(status_code=400, detail=f"Message bloqué: contenu inapproprié. {3 - violation_count} avertissement(s) restant(s).")
     match = await db.matches.find_one({"_id": ObjectId(match_id)})
     if not match:
         raise HTTPException(status_code=404, detail="Match non trouvé")
-    
     if user_id not in [match["user1_id"], match["user2_id"]]:
         raise HTTPException(status_code=403, detail="Accès non autorisé")
-    
-    # Check if blocked
     other_user_id = match["user2_id"] if match["user1_id"] == user_id else match["user1_id"]
     is_blocked = await db.blocks.find_one({
         "$or": [
@@ -1292,8 +942,6 @@ async def send_message(match_id: str, message: MessageCreate, current_user: dict
     })
     if is_blocked:
         raise HTTPException(status_code=403, detail="Impossible d'envoyer un message à cet utilisateur")
-    
-    # Create message
     message_doc = {
         "match_id": match_id,
         "sender_id": user_id,
@@ -1302,7 +950,6 @@ async def send_message(match_id: str, message: MessageCreate, current_user: dict
         "timestamp": datetime.utcnow()
     }
     result = await db.messages.insert_one(message_doc)
-    
     return {
         "id": str(result.inserted_id),
         "match_id": match_id,
@@ -1317,54 +964,31 @@ async def send_message(match_id: str, message: MessageCreate, current_user: dict
 
 @api_router.post("/block")
 async def block_user(block_data: BlockUserRequest, current_user: dict = Depends(get_current_user)):
-    """Block a user"""
     user_id = str(current_user["_id"])
-    
     if user_id == block_data.user_id:
         raise HTTPException(status_code=400, detail="Impossible de se bloquer soi-même")
-    
-    # Check if already blocked
-    existing = await db.blocks.find_one({
-        "blocker_id": user_id,
-        "blocked_id": block_data.user_id
-    })
+    existing = await db.blocks.find_one({"blocker_id": user_id, "blocked_id": block_data.user_id})
     if existing:
         raise HTTPException(status_code=400, detail="Utilisateur déjà bloqué")
-    
-    # Create block
-    block_doc = {
-        "blocker_id": user_id,
-        "blocked_id": block_data.user_id,
-        "timestamp": datetime.utcnow()
-    }
+    block_doc = {"blocker_id": user_id, "blocked_id": block_data.user_id, "timestamp": datetime.utcnow()}
     await db.blocks.insert_one(block_doc)
-    
     return {"success": True, "message": "Utilisateur bloqué"}
 
 @api_router.delete("/block/{user_id}")
 async def unblock_user(user_id: str, current_user: dict = Depends(get_current_user)):
-    """Unblock a user"""
     current_id = str(current_user["_id"])
-    
-    result = await db.blocks.delete_one({
-        "blocker_id": current_id,
-        "blocked_id": user_id
-    })
-    
+    result = await db.blocks.delete_one({"blocker_id": current_id, "blocked_id": user_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Blocage non trouvé")
-    
     return {"success": True, "message": "Utilisateur débloqué"}
 
 # ===================== SUBSCRIPTION ENDPOINTS =====================
 
 @api_router.get("/subscription")
 async def get_subscription(current_user: dict = Depends(get_current_user)):
-    """Get subscription status"""
     is_premium = current_user.get("is_premium", False)
     swipes_remaining = current_user.get("swipes_remaining", 0)
     coins = current_user.get("coins", 0)
-    
     return {
         "type": "premium" if is_premium else "free",
         "swipes_remaining": -1 if is_premium else swipes_remaining + coins,
@@ -1380,10 +1004,10 @@ async def get_subscription(current_user: dict = Depends(get_current_user)):
     }
 
 try:
-      from emergentintegrations.payments.stripe.checkout import StripeCheckout, CheckoutSessionResponse, CheckoutStatusResponse, CheckoutSessionRequest
-      STRIPE_AVAILABLE = True
+    from emergentintegrations.payments.stripe.checkout import StripeCheckout, CheckoutSessionResponse, CheckoutStatusResponse, CheckoutSessionRequest
+    STRIPE_AVAILABLE = True
 except ImportError:
-      STRIPE_AVAILABLE = False
+    STRIPE_AVAILABLE = False
 
 # ===================== STRIPE PAYMENT ENDPOINTS =====================
 
@@ -1399,36 +1023,27 @@ class CheckoutRequest(BaseModel):
 
 @api_router.post("/payments/create-checkout")
 async def create_checkout(data: CheckoutRequest, current_user: dict = Depends(get_current_user)):
+    if not STRIPE_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Paiements Stripe non disponibles")
     user_id = str(current_user["_id"])
     package = PAYMENT_PACKAGES.get(data.package_id)
     if not package:
         raise HTTPException(status_code=400, detail="Package invalide")
-    
     stripe_key = os.environ.get("STRIPE_API_KEY")
     if not stripe_key:
         raise HTTPException(status_code=500, detail="Stripe non configure")
-    
     success_url = f"{data.origin_url}/payment-success?session_id={{CHECKOUT_SESSION_ID}}"
     cancel_url = f"{data.origin_url}/subscription"
-    
     webhook_url = f"{str(data.origin_url)}/api/webhook/stripe"
     stripe_checkout = StripeCheckout(api_key=stripe_key, webhook_url=webhook_url)
-    
     checkout_request = CheckoutSessionRequest(
         amount=float(package["amount"]),
         currency="usd",
         success_url=success_url,
         cancel_url=cancel_url,
-        metadata={
-            "user_id": user_id,
-            "package_id": data.package_id,
-            "package_type": package["type"],
-        }
+        metadata={"user_id": user_id, "package_id": data.package_id, "package_type": package["type"]}
     )
-    
     session: CheckoutSessionResponse = await stripe_checkout.create_checkout_session(checkout_request)
-    
-    # Create payment transaction record
     await db.payment_transactions.insert_one({
         "session_id": session.session_id,
         "user_id": user_id,
@@ -1439,34 +1054,24 @@ async def create_checkout(data: CheckoutRequest, current_user: dict = Depends(ge
         "metadata": {"package_type": package["type"]},
         "created_at": datetime.utcnow()
     })
-    
     return {"url": session.url, "session_id": session.session_id}
 
 @api_router.get("/payments/status/{session_id}")
 async def check_payment_status(session_id: str, current_user: dict = Depends(get_current_user)):
+    if not STRIPE_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Paiements Stripe non disponibles")
     user_id = str(current_user["_id"])
-    
     transaction = await db.payment_transactions.find_one({"session_id": session_id, "user_id": user_id})
     if not transaction:
         raise HTTPException(status_code=404, detail="Transaction non trouvee")
-    
-    # If already processed, return cached status
     if transaction.get("payment_status") == "paid":
         return {"status": "complete", "payment_status": "paid", "already_processed": True}
-    
     stripe_key = os.environ.get("STRIPE_API_KEY")
     webhook_url = "https://placeholder.com/api/webhook/stripe"
     stripe_checkout = StripeCheckout(api_key=stripe_key, webhook_url=webhook_url)
-    
     status: CheckoutStatusResponse = await stripe_checkout.get_checkout_status(session_id)
-    
     if status.payment_status == "paid" and transaction.get("payment_status") != "paid":
-        # Update transaction
-        await db.payment_transactions.update_one(
-            {"session_id": session_id},
-            {"$set": {"payment_status": "paid", "paid_at": datetime.utcnow()}}
-        )
-        
+        await db.payment_transactions.update_one({"session_id": session_id}, {"$set": {"payment_status": "paid", "paid_at": datetime.utcnow()}})
         package = PAYMENT_PACKAGES.get(transaction["package_id"])
         if package:
             if package["type"] == "subscription":
@@ -1474,31 +1079,24 @@ async def check_payment_status(session_id: str, current_user: dict = Depends(get
             elif package["type"] == "pack":
                 await db.users.update_one({"_id": ObjectId(user_id)}, {"$inc": {"swipes_remaining": package["coins"]}})
     elif status.payment_status != "paid":
-        await db.payment_transactions.update_one(
-            {"session_id": session_id},
-            {"$set": {"payment_status": status.payment_status}}
-        )
-    
+        await db.payment_transactions.update_one({"session_id": session_id}, {"$set": {"payment_status": status.payment_status}})
     return {"status": status.status, "payment_status": status.payment_status}
 
 @api_router.post("/webhook/stripe")
 async def stripe_webhook(request: Request):
+    if not STRIPE_AVAILABLE:
+        return {"status": "error", "detail": "Stripe non disponible"}
     body = await request.body()
     signature = request.headers.get("Stripe-Signature", "")
-    
     stripe_key = os.environ.get("STRIPE_API_KEY")
     webhook_url = str(request.url)
     stripe_checkout = StripeCheckout(api_key=stripe_key, webhook_url=webhook_url)
-    
     try:
         event = await stripe_checkout.handle_webhook(body, signature)
         if event.payment_status == "paid":
             transaction = await db.payment_transactions.find_one({"session_id": event.session_id})
             if transaction and transaction.get("payment_status") != "paid":
-                await db.payment_transactions.update_one(
-                    {"session_id": event.session_id},
-                    {"$set": {"payment_status": "paid", "paid_at": datetime.utcnow()}}
-                )
+                await db.payment_transactions.update_one({"session_id": event.session_id}, {"$set": {"payment_status": "paid", "paid_at": datetime.utcnow()}})
                 package = PAYMENT_PACKAGES.get(transaction["package_id"])
                 user_id = transaction["user_id"]
                 if package:
@@ -1519,15 +1117,10 @@ class GooglePlayPurchase(BaseModel):
 
 @api_router.post("/payments/verify-google")
 async def verify_google_purchase(data: GooglePlayPurchase, current_user: dict = Depends(get_current_user)):
-    """Verify and process a Google Play purchase"""
     user_id = str(current_user["_id"])
-    
-    # Check if this purchase was already processed
     existing = await db.payment_transactions.find_one({"order_id": data.order_id, "payment_status": "paid"})
     if existing:
         return {"status": "already_processed", "message": "Achat déjà traité"}
-    
-    # Find matching package by Google product ID
     package = None
     package_id = None
     for pid, pkg in PAYMENT_PACKAGES.items():
@@ -1535,11 +1128,8 @@ async def verify_google_purchase(data: GooglePlayPurchase, current_user: dict = 
             package = pkg
             package_id = pid
             break
-    
     if not package:
         raise HTTPException(status_code=400, detail="Produit inconnu")
-    
-    # Store transaction
     await db.payment_transactions.insert_one({
         "user_id": user_id,
         "package_id": package_id,
@@ -1553,29 +1143,18 @@ async def verify_google_purchase(data: GooglePlayPurchase, current_user: dict = 
         "paid_at": datetime.utcnow(),
         "created_at": datetime.utcnow()
     })
-    
-    # Apply purchase
     if package["type"] == "subscription":
-        await db.users.update_one(
-            {"_id": current_user["_id"]},
-            {"$set": {"is_premium": True, "premium_source": "google_play", "premium_order_id": data.order_id}}
-        )
-        logger.info(f"User {user_id} upgraded to Premium via Google Play")
+        await db.users.update_one({"_id": current_user["_id"]}, {"$set": {"is_premium": True, "premium_source": "google_play", "premium_order_id": data.order_id}})
         return {"status": "success", "message": "Premium activé!", "is_premium": True}
     elif package["type"] == "pack":
         coins = package["coins"]
-        await db.users.update_one(
-            {"_id": current_user["_id"]},
-            {"$inc": {"swipes_remaining": coins}}
-        )
+        await db.users.update_one({"_id": current_user["_id"]}, {"$inc": {"swipes_remaining": coins}})
         updated = await db.users.find_one({"_id": current_user["_id"]})
         total = updated.get("swipes_remaining", 0) + updated.get("coins", 0)
-        logger.info(f"User {user_id} purchased {coins} swipes via Google Play")
         return {"status": "success", "message": f"+{coins} swipes!", "swipes_added": coins, "total_swipes": total}
 
 @api_router.get("/payments/products")
 async def get_products():
-    """Return available product IDs for Google Play"""
     return {
         "products": [
             {"id": "gamly_premium_monthly", "type": "subscription", "price": "$17.99/mois", "description": "GAMLY Premium - Swipes illimités"},
@@ -1584,238 +1163,128 @@ async def get_products():
         ]
     }
 
-# Keep legacy endpoints for backward compatibility
 @api_router.post("/subscription/upgrade")
 async def upgrade_subscription(current_user: dict = Depends(get_current_user)):
-    """Upgrade to premium $17.99/month (mock - no real payment)"""
-    await db.users.update_one(
-        {"_id": current_user["_id"]},
-        {"$set": {"is_premium": True}}
-    )
-    
-    return {
-        "success": True,
-        "message": "Félicitations! Vous êtes maintenant Premium!",
-        "is_premium": True
-    }
+    await db.users.update_one({"_id": current_user["_id"]}, {"$set": {"is_premium": True}})
+    return {"success": True, "message": "Félicitations! Vous êtes maintenant Premium!", "is_premium": True}
 
 class PurchaseSwipes(BaseModel):
-    pack: str  # "pack_50" or "pack_200"
+    pack: str
 
 @api_router.post("/subscription/buy-swipes")
 async def buy_swipes(purchase: PurchaseSwipes, current_user: dict = Depends(get_current_user)):
-    """Buy swipe packs (mock - no real payment)"""
     packs = {
         "pack_50": {"coins": 50, "price": 3.99},
         "pack_200": {"coins": 200, "price": 9.99},
     }
-    
     pack_info = packs.get(purchase.pack)
     if not pack_info:
         raise HTTPException(status_code=400, detail="Pack invalide")
-    
-    await db.users.update_one(
-        {"_id": current_user["_id"]},
-        {"$inc": {"coins": pack_info["coins"]}}
-    )
-    
+    await db.users.update_one({"_id": current_user["_id"]}, {"$inc": {"coins": pack_info["coins"]}})
     new_coins = current_user.get("coins", 0) + pack_info["coins"]
-    
-    return {
-        "success": True,
-        "message": f"+{pack_info['coins']} swipes ajoutés!",
-        "coins_added": pack_info["coins"],
-        "total_coins": new_coins,
-        "price": pack_info["price"]
-    }
+    return {"success": True, "message": f"+{pack_info['coins']} swipes ajoutés!", "coins_added": pack_info["coins"], "total_coins": new_coins, "price": pack_info["price"]}
 
 @api_router.post("/subscription/cancel")
 async def cancel_subscription(current_user: dict = Depends(get_current_user)):
-    """Cancel premium subscription (mock)"""
-    await db.users.update_one(
-        {"_id": current_user["_id"]},
-        {"$set": {"is_premium": False}}
-    )
-    
-    return {
-        "success": True,
-        "message": "Abonnement annulé",
-        "is_premium": False
-    }
+    await db.users.update_one({"_id": current_user["_id"]}, {"$set": {"is_premium": False}})
+    return {"success": True, "message": "Abonnement annulé", "is_premium": False}
 
 # ===================== DELETE MATCH =====================
 
 @api_router.delete("/matches/{match_id}")
 async def delete_match(match_id: str, current_user: dict = Depends(get_current_user)):
-    """Delete a match and all associated messages"""
     user_id = str(current_user["_id"])
-    
-    # Verify user is part of this match
     match = await db.matches.find_one({"_id": ObjectId(match_id)})
     if not match:
         raise HTTPException(status_code=404, detail="Match non trouvé")
-    
     if user_id not in [match["user1_id"], match["user2_id"]]:
         raise HTTPException(status_code=403, detail="Accès non autorisé")
-    
-    # Delete all messages
     await db.messages.delete_many({"match_id": match_id})
-    
-    # Delete match
     await db.matches.delete_one({"_id": ObjectId(match_id)})
-    
     return {"success": True, "message": "Match supprimé"}
 
 # ===================== TEAMS ENDPOINTS =====================
 
 @api_router.post("/teams")
 async def create_team(team_data: TeamCreate, current_user: dict = Depends(get_current_user)):
-    """Create a new team (Premium only)"""
     if not current_user.get("is_premium", False):
         raise HTTPException(status_code=403, detail="Seuls les utilisateurs Premium peuvent créer une team")
-    
-    # Check if user is already in a team
     existing_team = await db.teams.find_one({
-        "$or": [
-            {"owner_id": str(current_user["_id"])},
-            {"member_ids": str(current_user["_id"])}
-        ]
+        "$or": [{"owner_id": str(current_user["_id"])}, {"member_ids": str(current_user["_id"])}]
     })
     if existing_team:
         raise HTTPException(status_code=400, detail="Vous êtes déjà dans une team")
-    
     team_doc = {
         "name": team_data.name,
         "description": team_data.description,
         "game": team_data.game,
         "owner_id": str(current_user["_id"]),
-        "member_ids": [str(current_user["_id"])],  # Owner is first member
-        "looking_for_count": min(team_data.looking_for_count, 3),  # Max 3 more (total 4)
+        "member_ids": [str(current_user["_id"])],
+        "looking_for_count": min(team_data.looking_for_count, 3),
         "country": team_data.country,
         "console": team_data.console,
         "play_days": team_data.play_days or [],
         "play_time": team_data.play_time,
         "created_at": datetime.utcnow()
     }
-    
     result = await db.teams.insert_one(team_doc)
     team_doc["_id"] = result.inserted_id
-    
     return await format_team_response(team_doc)
 
 @api_router.get("/teams")
-async def get_teams(
-    current_user: dict = Depends(get_current_user),
-    game: Optional[str] = None
-):
-    """Get teams looking for members"""
+async def get_teams(current_user: dict = Depends(get_current_user), game: Optional[str] = None):
     query = {"looking_for_count": {"$gt": 0}}
-    
     if game:
         query["game"] = game
-    
     teams = await db.teams.find(query).sort("created_at", -1).to_list(50)
-    
-    result = []
-    for team in teams:
-        formatted = await format_team_response(team)
-        result.append(formatted)
-    
-    return result
+    return [await format_team_response(team) for team in teams]
 
 @api_router.get("/teams/my")
 async def get_my_team(current_user: dict = Depends(get_current_user)):
-    """Get the team the user is in"""
     user_id = str(current_user["_id"])
-    
-    team = await db.teams.find_one({
-        "$or": [
-            {"owner_id": user_id},
-            {"member_ids": user_id}
-        ]
-    })
-    
+    team = await db.teams.find_one({"$or": [{"owner_id": user_id}, {"member_ids": user_id}]})
     if not team:
         return None
-    
     return await format_team_response(team)
 
 @api_router.post("/teams/{team_id}/join")
 async def join_team(team_id: str, current_user: dict = Depends(get_current_user)):
-    """Request to join a team"""
     user_id = str(current_user["_id"])
-    
-    # Check if already in a team
-    existing = await db.teams.find_one({
-        "$or": [
-            {"owner_id": user_id},
-            {"member_ids": user_id}
-        ]
-    })
+    existing = await db.teams.find_one({"$or": [{"owner_id": user_id}, {"member_ids": user_id}]})
     if existing:
         raise HTTPException(status_code=400, detail="Vous êtes déjà dans une team")
-    
     team = await db.teams.find_one({"_id": ObjectId(team_id)})
     if not team:
         raise HTTPException(status_code=404, detail="Team non trouvée")
-    
     if len(team.get("member_ids", [])) >= 4:
         raise HTTPException(status_code=400, detail="La team est complète")
-    
     if team.get("looking_for_count", 0) <= 0:
         raise HTTPException(status_code=400, detail="La team ne recherche plus de membres")
-    
-    # Add user to team
-    await db.teams.update_one(
-        {"_id": ObjectId(team_id)},
-        {
-            "$push": {"member_ids": user_id},
-            "$inc": {"looking_for_count": -1}
-        }
-    )
-    
+    await db.teams.update_one({"_id": ObjectId(team_id)}, {"$push": {"member_ids": user_id}, "$inc": {"looking_for_count": -1}})
     return {"success": True, "message": "Vous avez rejoint la team!"}
 
 @api_router.post("/teams/{team_id}/leave")
 async def leave_team(team_id: str, current_user: dict = Depends(get_current_user)):
-    """Leave a team"""
     user_id = str(current_user["_id"])
-    
     team = await db.teams.find_one({"_id": ObjectId(team_id)})
     if not team:
         raise HTTPException(status_code=404, detail="Team non trouvée")
-    
     if user_id not in team.get("member_ids", []):
         raise HTTPException(status_code=400, detail="Vous n'êtes pas dans cette team")
-    
-    # If owner leaves, delete the team
     if team["owner_id"] == user_id:
         await db.teams.delete_one({"_id": ObjectId(team_id)})
         return {"success": True, "message": "Team supprimée"}
-    
-    # Otherwise just remove the member
-    await db.teams.update_one(
-        {"_id": ObjectId(team_id)},
-        {
-            "$pull": {"member_ids": user_id},
-            "$inc": {"looking_for_count": 1}
-        }
-    )
-    
+    await db.teams.update_one({"_id": ObjectId(team_id)}, {"$pull": {"member_ids": user_id}, "$inc": {"looking_for_count": 1}})
     return {"success": True, "message": "Vous avez quitté la team"}
 
 @api_router.put("/teams/{team_id}")
 async def update_team(team_id: str, team_data: TeamUpdate, current_user: dict = Depends(get_current_user)):
-    """Update team (owner only)"""
     user_id = str(current_user["_id"])
-    
     team = await db.teams.find_one({"_id": ObjectId(team_id)})
     if not team:
         raise HTTPException(status_code=404, detail="Team non trouvée")
-    
     if team["owner_id"] != user_id:
         raise HTTPException(status_code=403, detail="Seul le propriétaire peut modifier la team")
-    
     update_data = {}
     if team_data.name:
         update_data["name"] = team_data.name
@@ -1834,34 +1303,23 @@ async def update_team(team_id: str, team_data: TeamUpdate, current_user: dict = 
         update_data["play_days"] = team_data.play_days
     if team_data.play_time is not None:
         update_data["play_time"] = team_data.play_time
-    
     if update_data:
-        await db.teams.update_one(
-            {"_id": ObjectId(team_id)},
-            {"$set": update_data}
-        )
-    
+        await db.teams.update_one({"_id": ObjectId(team_id)}, {"$set": update_data})
     updated_team = await db.teams.find_one({"_id": ObjectId(team_id)})
     return await format_team_response(updated_team)
 
 @api_router.delete("/teams/{team_id}")
 async def delete_team(team_id: str, current_user: dict = Depends(get_current_user)):
-    """Delete team (owner only)"""
     user_id = str(current_user["_id"])
-    
     team = await db.teams.find_one({"_id": ObjectId(team_id)})
     if not team:
         raise HTTPException(status_code=404, detail="Team non trouvée")
-    
     if team["owner_id"] != user_id:
         raise HTTPException(status_code=403, detail="Seul le propriétaire peut supprimer la team")
-    
     await db.teams.delete_one({"_id": ObjectId(team_id)})
-    
     return {"success": True, "message": "Team supprimée"}
 
 async def format_team_response(team: dict) -> dict:
-    """Helper to format team response with member details"""
     members = []
     for member_id in team.get("member_ids", []):
         user = await db.users.find_one({"_id": ObjectId(member_id)})
@@ -1873,7 +1331,6 @@ async def format_team_response(team: dict) -> dict:
                 "console": user.get("console"),
                 "status": user.get("status", "offline")
             })
-    
     return {
         "id": str(team["_id"]),
         "name": team["name"],
@@ -1899,9 +1356,7 @@ async def create_game_night(data: GameNightCreate, current_user: dict = Depends(
         raise HTTPException(status_code=404, detail="Match non trouve")
     if user_id not in [match["user1_id"], match["user2_id"]]:
         raise HTTPException(status_code=403, detail="Acces non autorise")
-    
     other_user_id = match["user2_id"] if match["user1_id"] == user_id else match["user1_id"]
-    
     game_night_doc = {
         "match_id": data.match_id,
         "creator_id": user_id,
@@ -1914,7 +1369,6 @@ async def create_game_night(data: GameNightCreate, current_user: dict = Depends(
         "created_at": datetime.utcnow()
     }
     result = await db.game_nights.insert_one(game_night_doc)
-    
     system_msg = {
         "match_id": data.match_id,
         "sender_id": user_id,
@@ -1923,7 +1377,6 @@ async def create_game_night(data: GameNightCreate, current_user: dict = Depends(
         "timestamp": datetime.utcnow()
     }
     await db.messages.insert_one(system_msg)
-    
     return {
         "id": str(result.inserted_id),
         "match_id": data.match_id,
@@ -1945,7 +1398,6 @@ async def get_game_nights(match_id: str, current_user: dict = Depends(get_curren
         raise HTTPException(status_code=404, detail="Match non trouve")
     if user_id not in [match["user1_id"], match["user2_id"]]:
         raise HTTPException(status_code=403, detail="Acces non autorise")
-    
     game_nights = await db.game_nights.find({"match_id": match_id}).sort("created_at", -1).to_list(50)
     return [{
         "id": str(gn["_id"]),
@@ -1970,9 +1422,7 @@ async def respond_game_night(game_night_id: str, data: GameNightRespond, current
         raise HTTPException(status_code=403, detail="Seul l'invite peut repondre")
     if data.status not in ["accepted", "declined"]:
         raise HTTPException(status_code=400, detail="Statut invalide")
-    
     await db.game_nights.update_one({"_id": ObjectId(game_night_id)}, {"$set": {"status": data.status}})
-    
     status_text = "accepte" if data.status == "accepted" else "decline"
     system_msg = {
         "match_id": gn["match_id"],
@@ -1995,13 +1445,8 @@ async def cancel_game_night(game_night_id: str, current_user: dict = Depends(get
     await db.game_nights.delete_one({"_id": ObjectId(game_night_id)})
     return {"message": "Game Night annule"}
 
-# ===================== HEALTH CHECK =====================
+# ===================== INCLUDE ROUTER & MIDDLEWARE =====================
 
-@api_router.get("/health")
-async def health_check():
-    return {"status": "healthy", "timestamp": datetime.utcnow()}
-
-# Include the router in the main app
 app.include_router(api_router)
 
 app.add_middleware(
@@ -2012,7 +1457,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ===================== LEGAL PAGES (served at root, not /api) =====================
+# ===================== LEGAL PAGES =====================
 
 PRIVACY_POLICY_HTML = """<!DOCTYPE html>
 <html lang="fr">
@@ -2024,7 +1469,6 @@ PRIVACY_POLICY_HTML = """<!DOCTYPE html>
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0A0A0F;color:#E0E0E0;line-height:1.7;padding:20px;max-width:800px;margin:0 auto}
 h1{color:#FF1493;font-size:28px;margin:30px 0 10px;border-bottom:2px solid #FF1493;padding-bottom:10px}
 h2{color:#FF1493;font-size:20px;margin:25px 0 10px}
-h3{color:#bb8fce;font-size:16px;margin:15px 0 8px}
 p,li{font-size:15px;margin-bottom:8px;color:#ccc}
 ul{padding-left:20px}
 .header{text-align:center;padding:20px 0}
@@ -2036,69 +1480,10 @@ a{color:#FF1493}
 <body>
 <div class="header"><h1>GAMLY</h1><p>Politique de Confidentialite</p></div>
 <p class="date">Derniere mise a jour : 1er mars 2026</p>
-
 <h2>1. Introduction</h2>
-<p>GAMLY ("nous", "notre", "l'application") est une application de rencontre pour gamers. Nous nous engageons a proteger la vie privee de nos utilisateurs. Cette politique explique comment nous collectons, utilisons et protegeons vos donnees personnelles.</p>
-
-<h2>2. Donnees collectees</h2>
-<h3>2.1 Donnees fournies par vous</h3>
-<ul>
-<li><strong>Informations de compte</strong> : adresse email, mot de passe (chiffre)</li>
-<li><strong>Profil</strong> : pseudo, age, genre, pays, console de jeu, bio, photo/avatar</li>
-<li><strong>Preferences de jeu</strong> : jeux preferes, centres d'interet, langues, disponibilites</li>
-<li><strong>Comptes gaming</strong> : gamertags Steam, Xbox, PlayStation, Nintendo, Activision (fournis volontairement)</li>
-<li><strong>Messages</strong> : messages texte et vocaux envoyes dans l'application</li>
-</ul>
-<h3>2.2 Donnees collectees automatiquement</h3>
-<ul>
-<li>Date de creation du compte</li>
-<li>Historique des swipes et matchs</li>
-</ul>
-
-<h2>3. Utilisation des donnees</h2>
-<p>Vos donnees sont utilisees pour :</p>
-<ul>
-<li>Creer et gerer votre compte</li>
-<li>Vous proposer des profils compatibles</li>
-<li>Permettre la communication entre matchs</li>
-<li>Ameliorer l'experience utilisateur</li>
-<li>Assurer la securite et prevenir les abus</li>
-</ul>
-
-<h2>4. Partage des donnees</h2>
-<p>Nous ne vendons <strong>jamais</strong> vos donnees personnelles. Vos informations ne sont partagees qu'avec :</p>
-<ul>
-<li><strong>Vos matchs</strong> : votre pseudo, photo, bio, jeux, et gamertags sont reveles uniquement apres un match mutuel</li>
-<li><strong>Avant le match</strong> : vos gamertags sont affiches de maniere floutee (ex: "St****42")</li>
-</ul>
-
-<h2>5. Securite des donnees</h2>
-<ul>
-<li>Les mots de passe sont chiffres avec bcrypt</li>
-<li>Les communications sont protegees par HTTPS</li>
-<li>L'acces aux donnees est restreint par authentification JWT</li>
-</ul>
-
-<h2>6. Conservation des donnees</h2>
-<p>Vos donnees sont conservees tant que votre compte est actif. En cas de suppression du compte, toutes vos donnees personnelles, messages et matchs sont definitivement supprimes.</p>
-
-<h2>7. Vos droits</h2>
-<p>Vous avez le droit de :</p>
-<ul>
-<li><strong>Acceder</strong> a vos donnees personnelles (via votre profil)</li>
-<li><strong>Modifier</strong> vos informations a tout moment</li>
-<li><strong>Supprimer</strong> votre compte et toutes vos donnees (Profil &gt; Supprimer le compte)</li>
-<li><strong>Supprimer</strong> des matchs, conversations ou equipes individuellement</li>
-</ul>
-
-<h2>8. Mineurs</h2>
-<p>GAMLY est destinee aux personnes agees de <strong>18 ans et plus</strong>. Nous ne collectons pas sciemment de donnees de mineurs.</p>
-
-<h2>9. Modifications</h2>
-<p>Nous nous reservons le droit de modifier cette politique. Les utilisateurs seront informes des changements importants.</p>
-
-<h2>10. Contact</h2>
-<p>Pour toute question concernant vos donnees : <a href="mailto:contact@gamly.app">contact@gamly.app</a></p>
+<p>GAMLY est une application de rencontre pour gamers. Nous protegeons vos donnees personnelles.</p>
+<h2>2. Contact</h2>
+<p><a href="mailto:contact@gamly.app">contact@gamly.app</a></p>
 </body>
 </html>"""
 
@@ -2108,72 +1493,21 @@ TERMS_HTML = """<!DOCTYPE html>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GAMLY - Conditions d'Utilisation</title>
 <style>
-*{margin:0;padding:0;box-sizing:border-box}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0A0A0F;color:#E0E0E0;line-height:1.7;padding:20px;max-width:800px;margin:0 auto}
-h1{color:#FF1493;font-size:28px;margin:30px 0 10px;border-bottom:2px solid #FF1493;padding-bottom:10px}
-h2{color:#FF1493;font-size:20px;margin:25px 0 10px}
-p,li{font-size:15px;margin-bottom:8px;color:#ccc}
-ul{padding-left:20px}
-.header{text-align:center;padding:20px 0}
-.header h1{border:none;font-size:32px}
-.date{color:#888;font-size:13px;text-align:center}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0A0A0F;color:#E0E0E0;padding:20px;max-width:800px;margin:0 auto}
+h1,h2{color:#FF1493}
 a{color:#FF1493}
 </style>
 </head>
 <body>
-<div class="header"><h1>GAMLY</h1><p>Conditions d'Utilisation</p></div>
-<p class="date">Derniere mise a jour : 1er mars 2026</p>
-
-<h2>1. Acceptation des conditions</h2>
-<p>En utilisant GAMLY, vous acceptez les presentes conditions d'utilisation. Si vous n'acceptez pas ces conditions, veuillez ne pas utiliser l'application.</p>
-
-<h2>2. Description du service</h2>
-<p>GAMLY est une application de rencontre destinee aux gamers, permettant de decouvrir des profils, matcher, discuter et planifier des sessions de jeu ensemble.</p>
-
-<h2>3. Inscription</h2>
-<ul>
-<li>Vous devez avoir au moins <strong>18 ans</strong> pour utiliser GAMLY</li>
-<li>Vous devez fournir des informations exactes lors de l'inscription</li>
-<li>Vous etes responsable de la securite de votre compte</li>
-</ul>
-
-<h2>4. Comportement des utilisateurs</h2>
-<p>Les comportements suivants sont <strong>strictement interdits</strong> :</p>
-<ul>
-<li>Harcelement, intimidation ou menaces</li>
-<li>Contenu sexuellement explicite, violent ou haineux</li>
-<li>Spam, arnaques ou tentatives de fraude</li>
-<li>Usurpation d'identite</li>
-<li>Utilisation de langage inapproprie (detecte automatiquement)</li>
-</ul>
-<p>Apres <strong>3 avertissements</strong>, votre compte sera suspendu.</p>
-
-<h2>5. Abonnements et achats</h2>
-<ul>
-<li><strong>Swipes gratuits</strong> : 10 swipes offerts a l'inscription</li>
-<li><strong>Abonnement Premium</strong> : 17,99 EUR/mois pour des swipes illimites</li>
-<li><strong>Packs de swipes</strong> : 50 swipes (3,99 EUR), 200 swipes (9,99 EUR)</li>
-</ul>
-
-<h2>6. Propriete intellectuelle</h2>
-<p>GAMLY et son contenu (design, logo, code) sont proteges par le droit d'auteur. Toute reproduction non autorisee est interdite.</p>
-
-<h2>7. Limitation de responsabilite</h2>
-<p>GAMLY ne peut etre tenue responsable des interactions entre utilisateurs en dehors de l'application, ni des contenus publies par les utilisateurs.</p>
-
-<h2>8. Suppression de compte</h2>
-<p>Vous pouvez supprimer votre compte a tout moment depuis les parametres de votre profil. La suppression est definitive et irreversible.</p>
-
-<h2>9. Modifications</h2>
-<p>Nous nous reservons le droit de modifier ces conditions. L'utilisation continue de l'application apres modification vaut acceptation.</p>
-
-<h2>10. Contact</h2>
-<p>Pour toute question : <a href="mailto:contact@gamly.app">contact@gamly.app</a></p>
+<h1>GAMLY - Conditions d'Utilisation</h1>
+<p>Derniere mise a jour : 1er mars 2026</p>
+<h2>Contact</h2>
+<p><a href="mailto:contact@gamly.app">contact@gamly.app</a></p>
 </body>
 </html>"""
 
 @app.get("/privacy-policy", response_class=HTMLResponse)
-async def privacy_policy():
+async def privacy_policy_root():
     return PRIVACY_POLICY_HTML
 
 @app.get("/terms", response_class=HTMLResponse)
