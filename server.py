@@ -1379,7 +1379,11 @@ async def get_subscription(current_user: dict = Depends(get_current_user)):
         }
     }
 
-from emergentintegrations.payments.stripe.checkout import StripeCheckout, CheckoutSessionResponse, CheckoutStatusResponse, CheckoutSessionRequest
+try:
+      from emergentintegrations.payments.stripe.checkout import StripeCheckout, CheckoutSessionResponse, CheckoutStatusResponse, CheckoutSessionRequest
+      STRIPE_AVAILABLE = True
+except ImportError:
+      STRIPE_AVAILABLE = False
 
 # ===================== STRIPE PAYMENT ENDPOINTS =====================
 
