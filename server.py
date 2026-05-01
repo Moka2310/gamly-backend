@@ -1102,10 +1102,8 @@ async def stripe_webhook(request: Request):
         if webhook_secret:
             event = stripe_lib.Webhook.construct_event(body, signature, webhook_secret)
         else:
-            event = stripe_lib.Event.construct_from(
-                stripe_lib.util.convert_to_stripe_object(stripe_lib.decode_stripe_object(body.decode("utf-8"))),
-                stripe_key
-            )
+            import json
+            event = json.loads(body.decode("utf-8"))
         if event["type"] == "checkout.session.completed":
             session = event["data"]["object"]
             session_id = session["id"]
