@@ -1043,7 +1043,7 @@ async def create_checkout(data: CheckoutRequest, current_user: dict = Depends(ge
                 "quantity": 1,
             }],
             mode="payment",
-            automatic_payment_methods={"enabled": True},
+            payment_method_types=["card"],
             success_url=success_url,
             cancel_url=cancel_url,
             client_reference_id=user_id,
