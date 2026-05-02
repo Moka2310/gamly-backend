@@ -1547,6 +1547,83 @@ async def api_privacy_policy():
 async def api_terms_of_service():
     return TERMS_HTML
 
+PAYMENT_SUCCESS_HTML = """<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Paiement réussi - GAMLY</title>
+<style>
+  body { margin: 0; font-family: Arial, sans-serif; background: #0a0a0f; color: #E0E0E0; display: flex; align-items: center; justify-content: center; min-height: 100vh; text-align: center; padding: 20px; box-sizing: border-box; }
+  .card { background: #1a1a2e; border-radius: 20px; padding: 40px 30px; max-width: 400px; width: 100%; }
+  .icon { font-size: 64px; margin-bottom: 16px; }
+  h1 { color: #FF1493; margin: 0 0 12px; font-size: 24px; }
+  p { color: #aaa; line-height: 1.6; margin: 0 0 24px; }
+  .btn { display: inline-block; background: #FF1493; color: white; padding: 14px 32px; border-radius: 30px; text-decoration: none; font-weight: bold; font-size: 16px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="icon">✅</div>
+  <h1>Paiement réussi !</h1>
+  <p>Merci pour votre achat. Votre compte GAMLY a été mis à jour.<br><br>Retournez dans l'application pour profiter de vos avantages.</p>
+  <a class="btn" href="gamly://">Retour à l'app</a>
+</div>
+</body>
+</html>"""
+
+PAYMENT_CANCEL_HTML = """<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Paiement annulé - GAMLY</title>
+<style>
+  body { margin: 0; font-family: Arial, sans-serif; background: #0a0a0f; color: #E0E0E0; display: flex; align-items: center; justify-content: center; min-height: 100vh; text-align: center; padding: 20px; box-sizing: border-box; }
+  .card { background: #1a1a2e; border-radius: 20px; padding: 40px 30px; max-width: 400px; width: 100%; }
+  .icon { font-size: 64px; margin-bottom: 16px; }
+  h1 { color: #888; margin: 0 0 12px; font-size: 24px; }
+  p { color: #aaa; line-height: 1.6; margin: 0 0 24px; }
+  .btn { display: inline-block; background: #FF1493; color: white; padding: 14px 32px; border-radius: 30px; text-decoration: none; font-weight: bold; font-size: 16px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="icon">❌</div>
+  <h1>Paiement annulé</h1>
+  <p>Votre paiement a été annulé. Retournez dans l'application si vous souhaitez réessayer.</p>
+  <a class="btn" href="gamly://">Retour à l'app</a>
+</div>
+</body>
+</html>"""
+
+@app.get("/payment-success", response_class=HTMLResponse)
+async def payment_success_page(session_id: str = ""):
+    if session_id:
+        try:
+            stripe_key = os.environ.get("STRIPE_API_KEY", "").strip()
+            if stripe_key:
+                stripe_lib.api_key = stripe_key
+                session = stripe_lib.checkout.Session.retrieve(session_id)
+                if session.payment_status == "paid":
+                    transaction = await db.payment_transactions.find_one({"session_id": session_id})
+                    if transaction and transaction.get("payment_status") != "paid":
+                        await db.payment_transactions.update_one({"session_id": session_id}, {"$set": {"payment_status": "paid", "paid_at": datetime.utcnow()}})
+                        package = PAYMENT_PACKAGES.get(transaction["package_id"])
+                        user_id = transaction["user_id"]
+                        if package:
+                            if package["type"] == "subscription":
+                                await db.users.update_one({"_id": ObjectId(user_id)}, {"$set": {"is_premium": True}})
+                            elif package["type"] == "pack":
+                                await db.users.update_one({"_id": ObjectId(user_id)}, {"$inc": {"swipes_remaining": package["coins"]}})
+        except Exception as e:
+            logger.error(f"Payment success page error: {e}")
+    return PAYMENT_SUCCESS_HTML
+
+@app.get("/payment-cancel", response_class=HTMLResponse)
+async def payment_cancel_page():
+    return PAYMENT_CANCEL_HTML
+
 @app.on_event("shutdown")
 async def shutdown_db_client():
     client.close()
