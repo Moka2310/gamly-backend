@@ -1127,15 +1127,7 @@ PAYMENT_PACKAGES = {
 
 class CheckoutRequest(BaseModel):
     package_id: str = Field(..., max_length=30)
-    origin_url: str = Field(..., max_length=200)
-
-# Default allowed origins for payment redirects; override via ALLOWED_PAYMENT_ORIGINS env var
-_DEFAULT_PAYMENT_ORIGINS = [
-    "https://gamly-backend.onrender.com",
-    "http://localhost:8080",
-    "http://localhost:3000",
-    "http://localhost:19006",
-]
+    origin_url: str = Field("", max_length=200)  # kept for frontend compatibility, not used for routing
 
 @api_router.post("/payments/create-checkout")
 async def create_checkout(data: CheckoutRequest, current_user: dict = Depends(get_current_user)):
@@ -1144,18 +1136,15 @@ async def create_checkout(data: CheckoutRequest, current_user: dict = Depends(ge
     if not package:
         raise HTTPException(status_code=400, detail="Package invalide")
 
-    # Validate origin URL against whitelist to prevent open redirect / phishing
-    raw = os.environ.get("ALLOWED_PAYMENT_ORIGINS", "")
-    allowed_origins = [o.strip() for o in raw.split(",") if o.strip()] or _DEFAULT_PAYMENT_ORIGINS
-    if data.origin_url not in allowed_origins:
-        raise HTTPException(status_code=400, detail="URL d'origine non autorisée")
-
     stripe_key = os.environ.get("STRIPE_API_KEY", "").strip()
     if not stripe_key:
         raise HTTPException(status_code=500, detail="Service de paiement non configuré")
     stripe_lib.api_key = stripe_key
-    success_url = f"{data.origin_url}/payment-success?session_id={{CHECKOUT_SESSION_ID}}"
-    cancel_url = f"{data.origin_url}/subscription"
+
+    # Always use the backend URL for success/cancel redirects — pages are hosted on this server
+    backend_url = os.environ.get("BACKEND_URL", "https://gamly-backend.onrender.com").rstrip("/")
+    success_url = f"{backend_url}/payment-success?session_id={{CHECKOUT_SESSION_ID}}"
+    cancel_url = f"{backend_url}/payment-cancel"
     try:
         session = stripe_lib.checkout.Session.create(
             line_items=[{
