@@ -5,10 +5,13 @@ from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
+import re
+import time
 import logging
+from collections import defaultdict
 from pathlib import Path
 from pydantic import BaseModel, Field, EmailStr
-from typing import List, Optional
+from typing import List, Literal, Optional
 import uuid
 from datetime import datetime, date, timedelta
 import jwt
@@ -29,10 +32,30 @@ db = client[os.environ['DB_NAME']]
 resend.api_key = os.environ.get('RESEND_API_KEY', '')
 SENDER_EMAIL = os.environ.get('SENDER_EMAIL', 'onboarding@resend.dev')
 
-# JWT Configuration
-SECRET_KEY = os.environ.get('JWT_SECRET', 'gamerswipe-secret-key-2024')
+# JWT Configuration — must be set via environment variable, no hardcoded fallback
+SECRET_KEY = os.environ.get('JWT_SECRET')
+if not SECRET_KEY:
+    raise RuntimeError("JWT_SECRET environment variable must be set")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_HOURS = 24 * 7  # 7 days
+
+# Simple in-memory rate limiter (resets on server restart; use Redis for multi-instance)
+_rate_limit_store: dict = defaultdict(list)
+
+def check_rate_limit(key: str, max_requests: int = 5, window_seconds: int = 60) -> bool:
+    """Returns True if allowed, False if rate limited."""
+    now = time.time()
+    window_start = now - window_seconds
+    timestamps = _rate_limit_store[key]
+    timestamps[:] = [t for t in timestamps if t > window_start]
+    if len(timestamps) >= max_requests:
+        return False
+    timestamps.append(now)
+    return True
+
+# Allowed origins for CORS and payment redirects (comma-separated in env)
+_raw_origins = os.environ.get("ALLOWED_ORIGINS", "")
+ALLOWED_ORIGINS = [o.strip() for o in _raw_origins.split(",") if o.strip()] or ["*"]
 
 # Banned words filter (French + English profanity)
 BANNED_WORDS = [
@@ -48,23 +71,28 @@ BANNED_WORDS = [
 ]
 
 def contains_banned_words(text: str) -> bool:
-    """Check if text contains any banned words"""
+    """Check if text contains any banned words using word boundaries to avoid false positives."""
     if not text:
         return False
     text_lower = text.lower()
     for word in BANNED_WORDS:
-        if word in text_lower:
-            return True
+        if ' ' in word:
+            # Multi-word phrase: substring match
+            if word in text_lower:
+                return True
+        else:
+            # Single word: use word boundary to avoid false positives (e.g. "ass" in "class")
+            if re.search(r'\b' + re.escape(word) + r'\b', text_lower):
+                return True
     return False
 
-async def increment_violation_count(user_id: str) -> int:
-    """Increment violation count and return new count"""
-    result = await db.users.find_one_and_update(
-        {"_id": ObjectId(user_id)},
-        {"$inc": {"violation_count": 1}},
-        return_document=True
-    )
-    return result.get("violation_count", 1) if result else 1
+async def get_recent_violation_count(user_id: str) -> int:
+    """Count violations in the last 30 days (sliding window, resets naturally)."""
+    thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+    return await db.violations.count_documents({
+        "user_id": user_id,
+        "timestamp": {"$gte": thirty_days_ago}
+    })
 
 # Create the main app
 app = FastAPI(title="GamerSwipe API")
@@ -86,39 +114,39 @@ logger = logging.getLogger(__name__)
 
 class UserCreate(BaseModel):
     email: EmailStr
-    password: str
-    nickname: str
+    password: str = Field(..., min_length=8, max_length=128)
+    nickname: str = Field(..., min_length=2, max_length=30)
 
 class UserLogin(BaseModel):
     email: EmailStr
-    password: str
+    password: str = Field(..., min_length=1, max_length=128)
 
 class PasswordResetRequest(BaseModel):
     email: EmailStr
 
 class PasswordResetConfirm(BaseModel):
     email: EmailStr
-    reset_code: str
-    new_password: str
+    reset_code: str = Field(..., min_length=6, max_length=6)
+    new_password: str = Field(..., min_length=8, max_length=128)
 
 class UserProfile(BaseModel):
-    nickname: Optional[str] = None
-    age: Optional[int] = None
-    gender: Optional[str] = None  # homme, femme, autre
-    country: Optional[str] = None
-    console: Optional[str] = None  # xbox, ps5, pc
+    nickname: Optional[str] = Field(None, min_length=2, max_length=30)
+    age: Optional[int] = Field(None, ge=13, le=120)
+    gender: Optional[str] = Field(None, max_length=20)
+    country: Optional[str] = Field(None, max_length=60)
+    console: Optional[str] = Field(None, max_length=20)
     games: Optional[List[str]] = []
     interests: Optional[List[str]] = []
-    looking_for: Optional[str] = None  # ami_occasionnel, ami_team, ami_regulier
-    photo: Optional[str] = None  # base64
-    bio: Optional[str] = None
-    languages: Optional[List[str]] = []  # français, anglais, espagnol, italien, mandarin, arabe
-    availability_periods: Optional[List[str]] = []  # matin, midi, soir
-    availability_start: Optional[str] = None  # heure de début ex: "18:00"
-    availability_end: Optional[str] = None  # heure de fin ex: "23:00"
-    timezone: Optional[str] = None  # ex: "Europe/Paris", "America/New_York"
-    status: Optional[str] = None  # online, in_game, busy, offline
-    gaming_accounts: Optional[dict] = None  # {"steam": "tag", "xbox": "tag", "psn": "tag", "nintendo": "tag", "activision": "tag"}
+    looking_for: Optional[str] = Field(None, max_length=30)
+    photo: Optional[str] = Field(None, max_length=2_000_000)  # ~1.5MB base64
+    bio: Optional[str] = Field(None, max_length=500)
+    languages: Optional[List[str]] = []
+    availability_periods: Optional[List[str]] = []
+    availability_start: Optional[str] = Field(None, max_length=10)
+    availability_end: Optional[str] = Field(None, max_length=10)
+    timezone: Optional[str] = Field(None, max_length=60)
+    status: Optional[str] = Field(None, max_length=20)
+    gaming_accounts: Optional[dict] = None
 
 class UserResponse(BaseModel):
     id: str
@@ -145,24 +173,24 @@ class UserResponse(BaseModel):
 
 # Team Models
 class TeamCreate(BaseModel):
-    name: str
-    description: Optional[str] = None
-    game: str  # jeu principal de la team
-    looking_for_count: int = 1  # nombre de joueurs recherchés
-    country: Optional[str] = None
-    console: Optional[str] = None
-    play_days: Optional[List[str]] = None  # lundi, mardi, etc.
-    play_time: Optional[str] = None  # matin, apres-midi, soir
+    name: str = Field(..., min_length=2, max_length=50)
+    description: Optional[str] = Field(None, max_length=500)
+    game: str = Field(..., max_length=60)
+    looking_for_count: int = Field(1, ge=1, le=3)
+    country: Optional[str] = Field(None, max_length=60)
+    console: Optional[str] = Field(None, max_length=20)
+    play_days: Optional[List[str]] = None
+    play_time: Optional[str] = Field(None, max_length=20)
 
 class TeamUpdate(BaseModel):
-    name: Optional[str] = None
-    description: Optional[str] = None
-    game: Optional[str] = None
-    looking_for_count: Optional[int] = None
-    country: Optional[str] = None
-    console: Optional[str] = None
+    name: Optional[str] = Field(None, min_length=2, max_length=50)
+    description: Optional[str] = Field(None, max_length=500)
+    game: Optional[str] = Field(None, max_length=60)
+    looking_for_count: Optional[int] = Field(None, ge=0, le=3)
+    country: Optional[str] = Field(None, max_length=60)
+    console: Optional[str] = Field(None, max_length=20)
     play_days: Optional[List[str]] = None
-    play_time: Optional[str] = None
+    play_time: Optional[str] = Field(None, max_length=20)
 
 class TeamInvite(BaseModel):
     user_id: str
@@ -193,8 +221,8 @@ class SwipeCreate(BaseModel):
     action: str  # like, dislike
 
 class MessageCreate(BaseModel):
-    content: str
-    message_type: str = "text"  # "text" or "audio"
+    content: str = Field(..., min_length=1, max_length=5000)
+    message_type: Literal["text", "audio"] = "text"
 
 class MatchResponse(BaseModel):
     id: str
@@ -233,10 +261,14 @@ def create_access_token(user_id: str) -> str:
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
 def mask_nickname(nickname: str) -> str:
-    """Mask nickname like: 'GamerPro123' -> 'Gam****23'"""
-    if len(nickname) <= 4:
-        return "*" * len(nickname)
-    return nickname[:3] + "*" * (len(nickname) - 5) + nickname[-2:]
+    """Mask nickname like: 'GamerPro123' -> 'Ga*******3'"""
+    n = len(nickname)
+    if n <= 2:
+        return "*" * n
+    if n <= 4:
+        return nickname[0] + "*" * (n - 1)
+    # Show first 2 chars + mask middle + show last char only
+    return nickname[:2] + "*" * (n - 3) + nickname[-1]
 
 def blur_gamertag(tag: str) -> str:
     """Blur a gamertag: 'ProGamer99' -> 'Pr*****99'"""
@@ -263,6 +295,8 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         user = await db.users.find_one({"_id": ObjectId(user_id)})
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
+        if user.get("is_banned"):
+            raise HTTPException(status_code=403, detail="Compte suspendu")
         return user
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expired")
@@ -411,7 +445,8 @@ async def delete_account_page():
                     const loginData = await loginResponse.json();
                     const deleteResponse = await fetch('/api/auth/delete-account', {
                         method: 'DELETE',
-                        headers: { 'Authorization': `Bearer ${loginData.token}`, 'Content-Type': 'application/json' }
+                        headers: { 'Authorization': `Bearer ${loginData.token}`, 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ password })
                     });
                     if (!deleteResponse.ok) throw new Error('Erreur lors de la suppression');
                     formContainer.style.display = 'none';
@@ -431,26 +466,86 @@ async def delete_account_page():
 
 @api_router.get("/privacy-policy", response_class=HTMLResponse)
 async def privacy_policy():
-    html_content = """
-    <!DOCTYPE html>
-    <html lang="fr">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Politique de Confidentialité - GAMLY</title>
-    </head>
-    <body>
-        <h1>GAMLY - Politique de Confidentialité</h1>
-        <p>Dernière mise à jour : Février 2026</p>
-    </body>
-    </html>
-    """
+    html_content = """<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GAMLY - Politique de Confidentialité</title>
+<style>
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0A0A0F;color:#E0E0E0;line-height:1.7;padding:20px;max-width:800px;margin:0 auto}
+h1{color:#FF1493;font-size:28px;margin:30px 0 10px;border-bottom:2px solid #FF1493;padding-bottom:10px}
+h2{color:#FF1493;font-size:20px;margin:25px 0 10px}
+p,li{font-size:15px;margin-bottom:8px;color:#ccc}ul{padding-left:20px}
+</style>
+</head>
+<body>
+<h1>GAMLY - Politique de Confidentialité</h1>
+<p>Dernière mise à jour : Mai 2026</p>
+
+<h2>1. Données collectées</h2>
+<p>Nous collectons les données suivantes :</p>
+<ul>
+<li>Informations de compte : email, pseudonyme, mot de passe (haché)</li>
+<li>Informations de profil : âge, genre, pays, console, jeux, photo, bio</li>
+<li>Données d'utilisation : swipes, matchs, messages, statut en ligne</li>
+<li>Données de paiement : historique de transactions (sans données de carte bancaire)</li>
+<li>Comptes gaming : tags Steam, Xbox, PSN, Nintendo, Activision</li>
+</ul>
+
+<h2>2. Utilisation des données</h2>
+<p>Vos données sont utilisées pour :</p>
+<ul>
+<li>Faire fonctionner l'application et afficher des profils compatibles</li>
+<li>Gérer les matchs, messages et équipes</li>
+<li>Traiter les paiements (via Stripe et Google Play)</li>
+<li>Prévenir les abus et appliquer nos conditions d'utilisation</li>
+<li>Envoyer des emails liés au service (réinitialisation de mot de passe)</li>
+</ul>
+
+<h2>3. Conservation des données</h2>
+<p>Vos données sont conservées tant que votre compte est actif. Lors de la suppression de votre compte, toutes vos données personnelles (profil, matchs, messages, swipes) sont définitivement supprimées dans un délai de 30 jours.</p>
+
+<h2>4. Partage des données</h2>
+<p>Nous ne vendons pas vos données. Nous les partageons uniquement avec :</p>
+<ul>
+<li>Stripe (traitement des paiements)</li>
+<li>Google Play (vérification des achats)</li>
+<li>Resend (envoi d'emails)</li>
+<li>MongoDB Atlas (hébergement de la base de données)</li>
+</ul>
+
+<h2>5. Vos droits (RGPD)</h2>
+<p>Vous avez le droit de :</p>
+<ul>
+<li>Accéder à vos données personnelles</li>
+<li>Rectifier vos données inexactes</li>
+<li>Supprimer votre compte et toutes vos données</li>
+<li>Vous opposer au traitement de vos données</li>
+<li>Portabilité de vos données</li>
+</ul>
+
+<h2>6. Sécurité</h2>
+<p>Les mots de passe sont stockés de manière sécurisée (bcrypt). Les communications sont chiffrées via HTTPS. Les tokens d'authentification expirent automatiquement.</p>
+
+<h2>7. Mineurs</h2>
+<p>GAMLY est destiné aux personnes de 13 ans et plus. Les utilisateurs de moins de 18 ans doivent avoir l'accord d'un parent ou tuteur légal.</p>
+
+<h2>8. Modifications</h2>
+<p>Nous pouvons modifier cette politique à tout moment. Les modifications importantes seront notifiées par email ou dans l'application.</p>
+
+<h2>9. Contact</h2>
+<p>Pour toute question concernant vos données : <a href="mailto:contact@gamly.app" style="color:#FF1493">contact@gamly.app</a></p>
+</body>
+</html>"""
     return HTMLResponse(content=html_content)
 
 # ===================== AUTH ENDPOINTS =====================
 
 @api_router.post("/auth/register")
-async def register(user_data: UserCreate):
+async def register(user_data: UserCreate, request: Request):
+    ip = request.client.host if request.client else "unknown"
+    if not check_rate_limit(f"register:{ip}", max_requests=5, window_seconds=300):
+        raise HTTPException(status_code=429, detail="Trop de tentatives. Réessayez dans quelques minutes.")
     existing = await db.users.find_one({"email": user_data.email})
     if existing:
         raise HTTPException(status_code=400, detail="Email déjà utilisé")
@@ -492,7 +587,10 @@ async def register(user_data: UserCreate):
     }
 
 @api_router.post("/auth/login")
-async def login(user_data: UserLogin):
+async def login(user_data: UserLogin, request: Request):
+    ip = request.client.host if request.client else "unknown"
+    if not check_rate_limit(f"login:{ip}", max_requests=10, window_seconds=60):
+        raise HTTPException(status_code=429, detail="Trop de tentatives de connexion. Réessayez dans une minute.")
     clean_email = user_data.email.strip().lower()
     clean_password = user_data.password.strip()
     user = await db.users.find_one({"email": clean_email})
@@ -500,6 +598,8 @@ async def login(user_data: UserLogin):
         raise HTTPException(status_code=401, detail="Email ou mot de passe incorrect")
     if not verify_password(clean_password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Email ou mot de passe incorrect")
+    if user.get("is_banned"):
+        raise HTTPException(status_code=403, detail="Votre compte a été suspendu pour comportement inapproprié.")
     user_id = str(user["_id"])
     token = create_access_token(user_id)
     return {
@@ -516,8 +616,11 @@ async def login(user_data: UserLogin):
 # ===================== PASSWORD RESET ENDPOINTS =====================
 
 @api_router.post("/auth/forgot-password")
-async def forgot_password(data: PasswordResetRequest):
+async def forgot_password(data: PasswordResetRequest, request: Request):
     import random
+    ip = request.client.host if request.client else "unknown"
+    if not check_rate_limit(f"forgot:{ip}", max_requests=3, window_seconds=300):
+        raise HTTPException(status_code=429, detail="Trop de demandes. Réessayez dans quelques minutes.")
     user = await db.users.find_one({"email": data.email})
     if not user:
         return {"message": "Si cet email existe, un code de réinitialisation a été envoyé."}
@@ -551,7 +654,7 @@ async def forgot_password(data: PasswordResetRequest):
     except Exception as e:
         logger.error(f"Failed to send reset email to {data.email}: {e}")
         await db.reset_codes.delete_one({"email": data.email})
-        raise HTTPException(status_code=500, detail=f"Erreur lors de l'envoi de l'email: {str(e)}")
+        raise HTTPException(status_code=500, detail="Erreur lors de l'envoi de l'email. Réessayez plus tard.")
     return {"message": "Si cet email existe, un code de réinitialisation a été envoyé."}
 
 @api_router.post("/auth/reset-password")
@@ -576,8 +679,13 @@ async def reset_password(data: PasswordResetConfirm):
     await db.reset_codes.delete_one({"email": data.email})
     return {"message": "Mot de passe mis à jour avec succès!"}
 
+class DeleteAccountRequest(BaseModel):
+    password: str = Field(..., min_length=1, max_length=128)
+
 @api_router.delete("/auth/delete-account")
-async def delete_account(current_user: dict = Depends(get_current_user)):
+async def delete_account(data: DeleteAccountRequest, current_user: dict = Depends(get_current_user)):
+    if not verify_password(data.password, current_user["password_hash"]):
+        raise HTTPException(status_code=401, detail="Mot de passe incorrect")
     user_id = current_user["_id"]
     await db.matches.delete_many({"$or": [{"user1_id": str(user_id)}, {"user2_id": str(user_id)}]})
     await db.messages.delete_many({"$or": [{"sender_id": str(user_id)}, {"receiver_id": str(user_id)}]})
@@ -917,13 +1025,14 @@ async def get_messages(match_id: str, current_user: dict = Depends(get_current_u
 async def send_message(match_id: str, message: MessageCreate, current_user: dict = Depends(get_current_user)):
     user_id = str(current_user["_id"])
     if message.message_type == "text" and contains_banned_words(message.content):
-        violation_count = await increment_violation_count(user_id)
         await db.violations.insert_one({
             "user_id": user_id,
             "type": "banned_words",
             "content": message.content,
             "timestamp": datetime.utcnow()
         })
+        # Count violations in last 30 days (sliding window — prevents permanent ban from old infractions)
+        violation_count = await get_recent_violation_count(user_id)
         if violation_count >= 3:
             await db.users.update_one(
                 {"_id": ObjectId(user_id)},
@@ -1017,8 +1126,16 @@ PAYMENT_PACKAGES = {
 }
 
 class CheckoutRequest(BaseModel):
-    package_id: str
-    origin_url: str
+    package_id: str = Field(..., max_length=30)
+    origin_url: str = Field(..., max_length=200)
+
+# Default allowed origins for payment redirects; override via ALLOWED_PAYMENT_ORIGINS env var
+_DEFAULT_PAYMENT_ORIGINS = [
+    "https://gamly-backend.onrender.com",
+    "http://localhost:8080",
+    "http://localhost:3000",
+    "http://localhost:19006",
+]
 
 @api_router.post("/payments/create-checkout")
 async def create_checkout(data: CheckoutRequest, current_user: dict = Depends(get_current_user)):
@@ -1026,9 +1143,16 @@ async def create_checkout(data: CheckoutRequest, current_user: dict = Depends(ge
     package = PAYMENT_PACKAGES.get(data.package_id)
     if not package:
         raise HTTPException(status_code=400, detail="Package invalide")
+
+    # Validate origin URL against whitelist to prevent open redirect / phishing
+    raw = os.environ.get("ALLOWED_PAYMENT_ORIGINS", "")
+    allowed_origins = [o.strip() for o in raw.split(",") if o.strip()] or _DEFAULT_PAYMENT_ORIGINS
+    if data.origin_url not in allowed_origins:
+        raise HTTPException(status_code=400, detail="URL d'origine non autorisée")
+
     stripe_key = os.environ.get("STRIPE_API_KEY", "").strip()
     if not stripe_key:
-        raise HTTPException(status_code=500, detail="Stripe non configure")
+        raise HTTPException(status_code=500, detail="Service de paiement non configuré")
     stripe_lib.api_key = stripe_key
     success_url = f"{data.origin_url}/payment-success?session_id={{CHECKOUT_SESSION_ID}}"
     cancel_url = f"{data.origin_url}/subscription"
@@ -1051,13 +1175,13 @@ async def create_checkout(data: CheckoutRequest, current_user: dict = Depends(ge
         )
     except stripe_lib.error.AuthenticationError as e:
         logger.error(f"Stripe auth error: {e}")
-        raise HTTPException(status_code=500, detail="Clé Stripe invalide. Vérifiez STRIPE_API_KEY dans Render.")
+        raise HTTPException(status_code=500, detail="Erreur de configuration du service de paiement")
     except stripe_lib.error.PermissionError as e:
         logger.error(f"Stripe permission error: {e}")
-        raise HTTPException(status_code=500, detail="Compte Stripe non activé pour les paiements live. Allez sur dashboard.stripe.com pour activer.")
+        raise HTTPException(status_code=500, detail="Service de paiement temporairement indisponible")
     except Exception as e:
         logger.error(f"Stripe error {type(e).__name__}: {e}")
-        raise HTTPException(status_code=500, detail=f"Erreur Stripe: {str(e)}")
+        raise HTTPException(status_code=500, detail="Erreur lors de la création du paiement")
     await db.payment_transactions.insert_one({
         "session_id": session.id,
         "user_id": user_id,
@@ -1097,7 +1221,8 @@ async def check_payment_status(session_id: str, current_user: dict = Depends(get
             await db.payment_transactions.update_one({"session_id": session_id}, {"$set": {"payment_status": payment_status}})
         return {"status": session.status, "payment_status": payment_status}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erreur Stripe: {str(e)}")
+        logger.error(f"Stripe status check error: {e}")
+        raise HTTPException(status_code=500, detail="Erreur lors de la vérification du paiement")
 
 @api_router.post("/webhook/stripe")
 async def stripe_webhook(request: Request):
@@ -1105,33 +1230,53 @@ async def stripe_webhook(request: Request):
     signature = request.headers.get("Stripe-Signature", "")
     stripe_key = os.environ.get("STRIPE_API_KEY", "").strip()
     webhook_secret = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
+
     if not stripe_key:
-        return {"status": "error", "detail": "Stripe non configure"}
+        logger.error("Stripe webhook called but STRIPE_API_KEY not set")
+        raise HTTPException(status_code=500, detail="Service de paiement non configuré")
+
     stripe_lib.api_key = stripe_key
+
+    import json as _json
     try:
         if webhook_secret:
+            # Signature verification active — highly recommended in production
             event = stripe_lib.Webhook.construct_event(body, signature, webhook_secret)
         else:
-            import json
-            event = json.loads(body.decode("utf-8"))
+            logger.warning("STRIPE_WEBHOOK_SECRET not set — webhook signature not verified (set it in Render for security)")
+            event = _json.loads(body.decode("utf-8"))
+    except stripe_lib.error.SignatureVerificationError:
+        logger.warning("Invalid Stripe webhook signature — possible forgery attempt")
+        raise HTTPException(status_code=400, detail="Signature invalide")
+    except Exception as e:
+        logger.error(f"Stripe webhook parsing error: {e}")
+        raise HTTPException(status_code=400, detail="Webhook invalide")
+
+    try:
         if event["type"] == "checkout.session.completed":
             session = event["data"]["object"]
             session_id = session["id"]
             payment_status = session.get("payment_status", "")
             if payment_status == "paid":
-                transaction = await db.payment_transactions.find_one({"session_id": session_id})
-                if transaction and transaction.get("payment_status") != "paid":
-                    await db.payment_transactions.update_one({"session_id": session_id}, {"$set": {"payment_status": "paid", "paid_at": datetime.utcnow()}})
-                    package = PAYMENT_PACKAGES.get(transaction["package_id"])
-                    user_id = transaction["user_id"]
+                # Atomic update: only process if not already paid (prevents race condition double-credit)
+                result = await db.payment_transactions.find_one_and_update(
+                    {"session_id": session_id, "payment_status": {"$ne": "paid"}},
+                    {"$set": {"payment_status": "paid", "paid_at": datetime.utcnow()}},
+                    return_document=True
+                )
+                if result:
+                    package = PAYMENT_PACKAGES.get(result["package_id"])
+                    user_id = result["user_id"]
                     if package:
                         if package["type"] == "subscription":
                             await db.users.update_one({"_id": ObjectId(user_id)}, {"$set": {"is_premium": True}})
                         elif package["type"] == "pack":
                             await db.users.update_one({"_id": ObjectId(user_id)}, {"$inc": {"swipes_remaining": package["coins"]}})
+                        logger.info(f"Payment processed: user={user_id} package={result['package_id']}")
         return {"status": "ok"}
     except Exception as e:
-        return {"status": "error", "detail": str(e)}
+        logger.error(f"Stripe webhook processing error: {e}")
+        raise HTTPException(status_code=500, detail="Erreur traitement webhook")
 
 # ===================== GOOGLE PLAY BILLING ENDPOINTS =====================
 
@@ -1140,12 +1285,50 @@ class GooglePlayPurchase(BaseModel):
     purchase_token: str
     order_id: str
 
+async def _verify_google_play_token(product_id: str, purchase_token: str) -> bool:
+    """Verify purchase token with Google Play Developer API. Returns True if purchase is valid."""
+    import json
+    service_account_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "")
+    package_name = os.environ.get("GOOGLE_PLAY_PACKAGE_NAME", "com.gamly.dating")
+
+    if not service_account_json:
+        logger.warning("GOOGLE_SERVICE_ACCOUNT_JSON not set — Google Play purchase accepted without server-side verification")
+        return True  # Trust the client if no service account is configured
+
+    try:
+        from google.oauth2 import service_account
+        from googleapiclient.discovery import build
+
+        credentials_info = json.loads(service_account_json)
+        credentials = service_account.Credentials.from_service_account_info(
+            credentials_info,
+            scopes=["https://www.googleapis.com/auth/androidpublisher"]
+        )
+        service = await asyncio.to_thread(
+            build, "androidpublisher", "v3", credentials=credentials, cache_discovery=False
+        )
+        result = await asyncio.to_thread(
+            lambda: service.purchases().products().get(
+                packageName=package_name,
+                productId=product_id,
+                token=purchase_token
+            ).execute()
+        )
+        # purchaseState: 0 = Purchased, 1 = Canceled, 2 = Pending
+        return result.get("purchaseState", 1) == 0
+    except Exception as e:
+        logger.error(f"Google Play verification API error: {e}")
+        return False
+
 @api_router.post("/payments/verify-google")
 async def verify_google_purchase(data: GooglePlayPurchase, current_user: dict = Depends(get_current_user)):
     user_id = str(current_user["_id"])
+
+    # Prevent duplicate processing (atomic check by order_id)
     existing = await db.payment_transactions.find_one({"order_id": data.order_id, "payment_status": "paid"})
     if existing:
         return {"status": "already_processed", "message": "Achat déjà traité"}
+
     package = None
     package_id = None
     for pid, pkg in PAYMENT_PACKAGES.items():
@@ -1155,6 +1338,13 @@ async def verify_google_purchase(data: GooglePlayPurchase, current_user: dict = 
             break
     if not package:
         raise HTTPException(status_code=400, detail="Produit inconnu")
+
+    # Verify the purchase token with Google Play API
+    is_valid = await _verify_google_play_token(data.product_id, data.purchase_token)
+    if not is_valid:
+        logger.warning(f"Invalid Google Play purchase token for user={user_id} product={data.product_id}")
+        raise HTTPException(status_code=400, detail="Achat invalide ou non vérifié")
+
     await db.payment_transactions.insert_one({
         "user_id": user_id,
         "package_id": package_id,
@@ -1281,11 +1471,20 @@ async def join_team(team_id: str, current_user: dict = Depends(get_current_user)
     team = await db.teams.find_one({"_id": ObjectId(team_id)})
     if not team:
         raise HTTPException(status_code=404, detail="Team non trouvée")
-    if len(team.get("member_ids", [])) >= 4:
-        raise HTTPException(status_code=400, detail="La team est complète")
-    if team.get("looking_for_count", 0) <= 0:
-        raise HTTPException(status_code=400, detail="La team ne recherche plus de membres")
-    await db.teams.update_one({"_id": ObjectId(team_id)}, {"$push": {"member_ids": user_id}, "$inc": {"looking_for_count": -1}})
+
+    # Atomic update: only succeeds if team has room and is still recruiting (prevents race condition)
+    result = await db.teams.find_one_and_update(
+        {
+            "_id": ObjectId(team_id),
+            "$expr": {"$lt": [{"$size": "$member_ids"}, 4]},
+            "looking_for_count": {"$gt": 0},
+            "member_ids": {"$ne": user_id}
+        },
+        {"$push": {"member_ids": user_id}, "$inc": {"looking_for_count": -1}},
+        return_document=True
+    )
+    if not result:
+        raise HTTPException(status_code=400, detail="La team est complète ou ne recherche plus de membres")
     return {"success": True, "message": "Vous avez rejoint la team!"}
 
 @api_router.post("/teams/{team_id}/leave")
@@ -1476,10 +1675,10 @@ app.include_router(api_router)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_credentials=True,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=False,  # JWT via Authorization header, no cookies needed
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept"],
 )
 
 # ===================== LEGAL PAGES =====================
@@ -1604,13 +1803,18 @@ async def payment_success_page(session_id: str = ""):
             stripe_key = os.environ.get("STRIPE_API_KEY", "").strip()
             if stripe_key:
                 stripe_lib.api_key = stripe_key
-                session = stripe_lib.checkout.Session.retrieve(session_id)
+                # Use asyncio.to_thread to avoid blocking the event loop with the sync Stripe call
+                session = await asyncio.to_thread(stripe_lib.checkout.Session.retrieve, session_id)
                 if session.payment_status == "paid":
-                    transaction = await db.payment_transactions.find_one({"session_id": session_id})
-                    if transaction and transaction.get("payment_status") != "paid":
-                        await db.payment_transactions.update_one({"session_id": session_id}, {"$set": {"payment_status": "paid", "paid_at": datetime.utcnow()}})
-                        package = PAYMENT_PACKAGES.get(transaction["package_id"])
-                        user_id = transaction["user_id"]
+                    # Atomic update to prevent double-credit on concurrent requests
+                    result = await db.payment_transactions.find_one_and_update(
+                        {"session_id": session_id, "payment_status": {"$ne": "paid"}},
+                        {"$set": {"payment_status": "paid", "paid_at": datetime.utcnow()}},
+                        return_document=True
+                    )
+                    if result:
+                        package = PAYMENT_PACKAGES.get(result["package_id"])
+                        user_id = result["user_id"]
                         if package:
                             if package["type"] == "subscription":
                                 await db.users.update_one({"_id": ObjectId(user_id)}, {"$set": {"is_premium": True}})
