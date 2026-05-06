@@ -1768,14 +1768,13 @@ PAYMENT_SUCCESS_HTML = """<!DOCTYPE html>
     if (isMobile) {
       // Deep link vers l'app mobile (scheme défini dans app.json)
       window.location.href = 'gamely://';
-      // Fallback : si le deep link échoue après 2s, fermer l'onglet
+      // Fallback : si le deep link échoue après 2s, afficher message
       setTimeout(function() {
         document.getElementById('hint').textContent = "Si l'app ne s'ouvre pas, revenez-y manuellement.";
       }, 2000);
     } else {
-      // Version web : retourner à la page d'abonnement
-      var webUrl = window.location.origin + '/subscription';
-      window.location.href = webUrl;
+      // Version bureau : l'app est mobile, afficher un message d'instruction
+      document.getElementById('hint').textContent = "Retournez dans l'application GAMLY sur votre téléphone.";
     }
   }
 
