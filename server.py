@@ -132,20 +132,20 @@ class PasswordResetConfirm(BaseModel):
 class UserProfile(BaseModel):
     nickname: Optional[str] = Field(None, min_length=2, max_length=30)
     age: Optional[int] = Field(None, ge=13, le=120)
-    gender: Optional[str] = Field(None, max_length=20)
-    country: Optional[str] = Field(None, max_length=60)
-    console: Optional[str] = Field(None, max_length=20)
+    gender: Optional[str] = None
+    country: Optional[str] = None
+    console: Optional[str] = None
     games: Optional[List[str]] = []
     interests: Optional[List[str]] = []
-    looking_for: Optional[str] = Field(None, max_length=30)
-    photo: Optional[str] = Field(None, max_length=2_000_000)  # ~1.5MB base64
-    bio: Optional[str] = Field(None, max_length=500)
+    looking_for: Optional[str] = None
+    photo: Optional[str] = None  # base64 — no size limit here, handled by server upload limits
+    bio: Optional[str] = Field(None, max_length=1000)
     languages: Optional[List[str]] = []
     availability_periods: Optional[List[str]] = []
-    availability_start: Optional[str] = Field(None, max_length=10)
-    availability_end: Optional[str] = Field(None, max_length=10)
-    timezone: Optional[str] = Field(None, max_length=60)
-    status: Optional[str] = Field(None, max_length=20)
+    availability_start: Optional[str] = None
+    availability_end: Optional[str] = None
+    timezone: Optional[str] = None
+    status: Optional[str] = None
     gaming_accounts: Optional[dict] = None
 
 class UserResponse(BaseModel):
@@ -1746,17 +1746,54 @@ PAYMENT_SUCCESS_HTML = """<!DOCTYPE html>
   .card { background: #1a1a2e; border-radius: 20px; padding: 40px 30px; max-width: 400px; width: 100%; }
   .icon { font-size: 64px; margin-bottom: 16px; }
   h1 { color: #FF1493; margin: 0 0 12px; font-size: 24px; }
-  p { color: #aaa; line-height: 1.6; margin: 0 0 24px; }
-  .btn { display: inline-block; background: #FF1493; color: white; padding: 14px 32px; border-radius: 30px; text-decoration: none; font-weight: bold; font-size: 16px; }
+  p { color: #aaa; line-height: 1.6; margin: 0 0 16px; }
+  .btn { display: inline-block; background: #FF1493; color: white; padding: 14px 32px; border-radius: 30px; text-decoration: none; font-weight: bold; font-size: 16px; cursor: pointer; border: none; width: 100%; box-sizing: border-box; margin-bottom: 12px; }
+  .btn-secondary { background: transparent; border: 2px solid #FF1493; color: #FF1493; }
+  .hint { font-size: 13px; color: #666; margin-top: 8px; }
 </style>
 </head>
 <body>
 <div class="card">
   <div class="icon">✅</div>
   <h1>Paiement réussi !</h1>
-  <p>Merci pour votre achat. Votre compte GAMLY a été mis à jour.<br><br>Retournez dans l'application pour profiter de vos avantages.</p>
-  <a class="btn" href="gamly://">Retour à l'app</a>
+  <p>Merci pour votre achat. Votre compte GAMLY a été mis à jour.</p>
+  <button class="btn" onclick="openApp()">Retour à l'app</button>
+  <button class="btn btn-secondary" onclick="closeOrBack()">Fermer cette page</button>
+  <p class="hint" id="hint"></p>
 </div>
+<script>
+  var isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+  function openApp() {
+    if (isMobile) {
+      // Deep link vers l'app mobile (scheme défini dans app.json)
+      window.location.href = 'gamely://';
+      // Fallback : si le deep link échoue après 2s, fermer l'onglet
+      setTimeout(function() {
+        document.getElementById('hint').textContent = "Si l'app ne s'ouvre pas, revenez-y manuellement.";
+      }, 2000);
+    } else {
+      // Version web : retourner à la page d'abonnement
+      var webUrl = window.location.origin + '/subscription';
+      window.location.href = webUrl;
+    }
+  }
+
+  function closeOrBack() {
+    if (window.history.length > 1) {
+      window.history.back();
+    } else {
+      window.close();
+    }
+  }
+
+  // Sur mobile : tenter le deep link automatiquement après 1 seconde
+  if (isMobile) {
+    setTimeout(function() {
+      window.location.href = 'gamely://';
+    }, 1000);
+  }
+</script>
 </body>
 </html>"""
 
@@ -1771,8 +1808,8 @@ PAYMENT_CANCEL_HTML = """<!DOCTYPE html>
   .card { background: #1a1a2e; border-radius: 20px; padding: 40px 30px; max-width: 400px; width: 100%; }
   .icon { font-size: 64px; margin-bottom: 16px; }
   h1 { color: #888; margin: 0 0 12px; font-size: 24px; }
-  p { color: #aaa; line-height: 1.6; margin: 0 0 24px; }
-  .btn { display: inline-block; background: #FF1493; color: white; padding: 14px 32px; border-radius: 30px; text-decoration: none; font-weight: bold; font-size: 16px; }
+  p { color: #aaa; line-height: 1.6; margin: 0 0 16px; }
+  .btn { display: inline-block; background: #FF1493; color: white; padding: 14px 32px; border-radius: 30px; text-decoration: none; font-weight: bold; font-size: 16px; cursor: pointer; border: none; width: 100%; box-sizing: border-box; margin-bottom: 12px; }
 </style>
 </head>
 <body>
@@ -1780,8 +1817,18 @@ PAYMENT_CANCEL_HTML = """<!DOCTYPE html>
   <div class="icon">❌</div>
   <h1>Paiement annulé</h1>
   <p>Votre paiement a été annulé. Retournez dans l'application si vous souhaitez réessayer.</p>
-  <a class="btn" href="gamly://">Retour à l'app</a>
+  <button class="btn" onclick="goBack()">Retour à l'app</button>
 </div>
+<script>
+  var isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  function goBack() {
+    if (isMobile) {
+      window.location.href = 'gamely://';
+    } else {
+      window.location.href = window.location.origin + '/subscription';
+    }
+  }
+</script>
 </body>
 </html>"""
 
