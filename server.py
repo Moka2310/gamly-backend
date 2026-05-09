@@ -42,6 +42,9 @@ ACCESS_TOKEN_EXPIRE_HOURS = 24 * 7  # 7 days
 # Simple in-memory rate limiter (resets on server restart; use Redis for multi-instance)
 _rate_limit_store: dict = defaultdict(list)
 
+# In-memory typing indicator store: key "match_id:user_id" -> last_typing_at timestamp
+_typing_store: dict = {}
+
 def check_rate_limit(key: str, max_requests: int = 5, window_seconds: int = 60) -> bool:
     """Returns True if allowed, False if rate limited."""
     now = time.time()
@@ -126,8 +129,12 @@ class PasswordResetRequest(BaseModel):
 
 class PasswordResetConfirm(BaseModel):
     email: EmailStr
-    reset_code: str = Field(..., min_length=6, max_length=6)
+    reset_code: str = Field(..., min_length=8, max_length=8)
     new_password: str = Field(..., min_length=8, max_length=128)
+
+class EmailVerificationRequest(BaseModel):
+    email: EmailStr
+    code: str = Field(..., min_length=6, max_length=6)
 
 class UserProfile(BaseModel):
     nickname: Optional[str] = Field(None, min_length=2, max_length=30)
@@ -572,17 +579,49 @@ async def register(user_data: UserCreate, request: Request):
         "last_swipe_reset": date.today().isoformat(),
         "is_premium": False,
         "coins": 0,
+        "email_verified": False,
     }
     result = await db.users.insert_one(user_doc)
     user_id = str(result.inserted_id)
     token = create_access_token(user_id)
+
+    # Send email verification asynchronously (don't block registration)
+    import random as _random
+    verify_code = str(_random.randint(100000, 999999))
+    verify_expires = datetime.utcnow() + timedelta(hours=24)
+    await db.email_verifications.update_one(
+        {"email": user_data.email},
+        {"$set": {"code": verify_code, "expires": verify_expires}},
+        upsert=True
+    )
+    try:
+        verify_html = f"""
+        <div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;background:#0A0A0F;color:#E0E0E0;padding:30px;border-radius:12px;">
+            <h1 style="color:#FF1493;text-align:center;">GAMLY</h1>
+            <p>Bienvenue {user_data.nickname} ! Voici ton code de vérification :</p>
+            <div style="background:#1a1a2e;border:2px solid #FF1493;border-radius:10px;padding:20px;text-align:center;">
+                <span style="font-size:32px;font-weight:bold;letter-spacing:8px;color:#FF1493;">{verify_code}</span>
+            </div>
+            <p style="color:#888;">Ce code expire dans <strong>24 heures</strong>.</p>
+        </div>
+        """
+        await asyncio.to_thread(resend.Emails.send, {
+            "from": SENDER_EMAIL,
+            "to": [user_data.email],
+            "subject": "GAMLY - Vérifie ton adresse email",
+            "html": verify_html
+        })
+    except Exception as e:
+        logger.warning(f"Could not send verification email to {user_data.email}: {e}")
+
     return {
         "token": token,
         "user": {
             "id": user_id,
             "email": user_data.email,
             "nickname": user_data.nickname,
-            "profile_complete": False
+            "profile_complete": False,
+            "email_verified": False
         }
     }
 
@@ -624,7 +663,7 @@ async def forgot_password(data: PasswordResetRequest, request: Request):
     user = await db.users.find_one({"email": data.email})
     if not user:
         return {"message": "Si cet email existe, un code de réinitialisation a été envoyé."}
-    code = str(random.randint(100000, 999999))
+    code = str(random.randint(10000000, 99999999))  # 8 digits — 100M possibilities
     expires = datetime.utcnow() + timedelta(minutes=10)
     # Store in MongoDB (survives server restarts)
     await db.reset_codes.update_one(
@@ -658,7 +697,11 @@ async def forgot_password(data: PasswordResetRequest, request: Request):
     return {"message": "Si cet email existe, un code de réinitialisation a été envoyé."}
 
 @api_router.post("/auth/reset-password")
-async def reset_password(data: PasswordResetConfirm):
+async def reset_password(data: PasswordResetConfirm, request: Request):
+    ip = request.client.host if request.client else "unknown"
+    # Rate limit: 5 attempts per 30 minutes per IP to prevent brute force
+    if not check_rate_limit(f"reset:{ip}", max_requests=5, window_seconds=1800):
+        raise HTTPException(status_code=429, detail="Trop de tentatives. Réessayez dans 30 minutes.")
     reset_data = await db.reset_codes.find_one({"email": data.email})
     if not reset_data:
         raise HTTPException(status_code=400, detail="Aucun code de réinitialisation trouvé")
@@ -667,8 +710,6 @@ async def reset_password(data: PasswordResetConfirm):
         raise HTTPException(status_code=400, detail="Code expiré. Demandez un nouveau code.")
     if reset_data["code"] != data.reset_code:
         raise HTTPException(status_code=400, detail="Code incorrect")
-    if len(data.new_password) < 6:
-        raise HTTPException(status_code=400, detail="Le mot de passe doit contenir au moins 6 caractères")
     user = await db.users.find_one({"email": data.email})
     if not user:
         raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
@@ -695,6 +736,60 @@ async def delete_account(data: DeleteAccountRequest, current_user: dict = Depend
     logger.info(f"User account deleted: {user_id}")
     return {"message": "Compte supprimé avec succès"}
 
+@api_router.post("/auth/verify-email")
+async def verify_email(data: EmailVerificationRequest):
+    record = await db.email_verifications.find_one({"email": data.email})
+    if not record:
+        raise HTTPException(status_code=400, detail="Aucun code de vérification trouvé")
+    if datetime.utcnow() > record["expires"]:
+        await db.email_verifications.delete_one({"email": data.email})
+        raise HTTPException(status_code=400, detail="Code expiré. Demandez un nouveau code.")
+    if record["code"] != data.code:
+        raise HTTPException(status_code=400, detail="Code incorrect")
+    await db.users.update_one({"email": data.email}, {"$set": {"email_verified": True}})
+    await db.email_verifications.delete_one({"email": data.email})
+    return {"message": "Email vérifié avec succès!"}
+
+@api_router.post("/auth/resend-verification")
+async def resend_verification(data: PasswordResetRequest, request: Request):
+    import random as _random
+    ip = request.client.host if request.client else "unknown"
+    if not check_rate_limit(f"verify_resend:{ip}", max_requests=3, window_seconds=300):
+        raise HTTPException(status_code=429, detail="Trop de demandes. Réessayez dans quelques minutes.")
+    user = await db.users.find_one({"email": data.email})
+    if not user:
+        return {"message": "Si cet email existe, un code a été envoyé."}
+    if user.get("email_verified"):
+        return {"message": "Email déjà vérifié."}
+    verify_code = str(_random.randint(100000, 999999))
+    verify_expires = datetime.utcnow() + timedelta(hours=24)
+    await db.email_verifications.update_one(
+        {"email": data.email},
+        {"$set": {"code": verify_code, "expires": verify_expires}},
+        upsert=True
+    )
+    try:
+        verify_html = f"""
+        <div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;background:#0A0A0F;color:#E0E0E0;padding:30px;border-radius:12px;">
+            <h1 style="color:#FF1493;text-align:center;">GAMLY</h1>
+            <p>Voici ton nouveau code de vérification :</p>
+            <div style="background:#1a1a2e;border:2px solid #FF1493;border-radius:10px;padding:20px;text-align:center;">
+                <span style="font-size:32px;font-weight:bold;letter-spacing:8px;color:#FF1493;">{verify_code}</span>
+            </div>
+            <p style="color:#888;">Ce code expire dans <strong>24 heures</strong>.</p>
+        </div>
+        """
+        await asyncio.to_thread(resend.Emails.send, {
+            "from": SENDER_EMAIL,
+            "to": [data.email],
+            "subject": "GAMLY - Nouveau code de vérification",
+            "html": verify_html
+        })
+    except Exception as e:
+        logger.error(f"Could not resend verification to {data.email}: {e}")
+        raise HTTPException(status_code=500, detail="Erreur d'envoi. Réessayez plus tard.")
+    return {"message": "Si cet email existe, un code a été envoyé."}
+
 @api_router.get("/auth/me")
 async def get_me(current_user: dict = Depends(get_current_user)):
     return {
@@ -716,7 +811,8 @@ async def get_me(current_user: dict = Depends(get_current_user)):
         "is_premium": current_user.get("is_premium", False),
         "status": current_user.get("status", "offline"),
         "gaming_accounts": current_user.get("gaming_accounts", {}),
-        "created_at": current_user.get("created_at")
+        "created_at": current_user.get("created_at"),
+        "email_verified": current_user.get("email_verified", False),
     }
 
 # ===================== PROFILE ENDPOINTS =====================
@@ -725,6 +821,8 @@ async def get_me(current_user: dict = Depends(get_current_user)):
 async def update_profile(profile: UserProfile, current_user: dict = Depends(get_current_user)):
     update_data = {}
     if profile.nickname is not None:
+        if contains_banned_words(profile.nickname):
+            raise HTTPException(status_code=400, detail="Pseudo contient du contenu inapproprié")
         existing = await db.users.find_one({"nickname": profile.nickname, "_id": {"$ne": current_user["_id"]}})
         if existing:
             raise HTTPException(status_code=400, detail="Nickname déjà utilisé")
@@ -748,6 +846,8 @@ async def update_profile(profile: UserProfile, current_user: dict = Depends(get_
     if profile.photo is not None:
         update_data["photo"] = profile.photo
     if profile.bio is not None:
+        if contains_banned_words(profile.bio):
+            raise HTTPException(status_code=400, detail="Bio contient du contenu inapproprié")
         update_data["bio"] = profile.bio
     if profile.availability_periods is not None:
         update_data["availability_periods"] = profile.availability_periods
@@ -958,11 +1058,17 @@ async def swipe(swipe_data: SwipeCreate, current_user: dict = Depends(get_curren
 # ===================== MATCHES ENDPOINTS =====================
 
 @api_router.get("/matches")
-async def get_matches(current_user: dict = Depends(get_current_user)):
+async def get_matches(
+    page: int = 1,
+    limit: int = 30,
+    current_user: dict = Depends(get_current_user)
+):
     user_id = str(current_user["_id"])
+    limit = min(limit, 50)  # cap at 50
+    skip = (page - 1) * limit
     matches = await db.matches.find({
         "$or": [{"user1_id": user_id}, {"user2_id": user_id}]
-    }).sort("matched_at", -1).to_list(100)
+    }).sort("matched_at", -1).skip(skip).to_list(limit)
     result = []
     for match in matches:
         other_user_id = match["user2_id"] if match["user1_id"] == user_id else match["user1_id"]
@@ -1003,14 +1109,25 @@ async def get_matches(current_user: dict = Depends(get_current_user)):
 # ===================== MESSAGES ENDPOINTS =====================
 
 @api_router.get("/messages/{match_id}")
-async def get_messages(match_id: str, current_user: dict = Depends(get_current_user)):
+async def get_messages(
+    match_id: str,
+    before_id: Optional[str] = None,
+    limit: int = 50,
+    current_user: dict = Depends(get_current_user)
+):
     user_id = str(current_user["_id"])
     match = await db.matches.find_one({"_id": ObjectId(match_id)})
     if not match:
         raise HTTPException(status_code=404, detail="Match non trouvé")
     if user_id not in [match["user1_id"], match["user2_id"]]:
         raise HTTPException(status_code=403, detail="Accès non autorisé")
-    messages = await db.messages.find({"match_id": match_id}).sort("timestamp", 1).to_list(500)
+    limit = min(limit, 100)
+    query: dict = {"match_id": match_id}
+    if before_id and ObjectId.is_valid(before_id):
+        query["_id"] = {"$lt": ObjectId(before_id)}
+    # Fetch newest N messages then reverse for chronological order
+    messages = await db.messages.find(query).sort("timestamp", -1).limit(limit).to_list(limit)
+    messages.reverse()
     return [{
         "id": str(msg["_id"]),
         "match_id": msg["match_id"],
@@ -1020,6 +1137,25 @@ async def get_messages(match_id: str, current_user: dict = Depends(get_current_u
         "timestamp": msg["timestamp"],
         "is_mine": msg["sender_id"] == user_id
     } for msg in messages]
+
+@api_router.post("/messages/{match_id}/typing")
+async def update_typing(match_id: str, current_user: dict = Depends(get_current_user)):
+    user_id = str(current_user["_id"])
+    _typing_store[f"{match_id}:{user_id}"] = time.time()
+    return {"ok": True}
+
+@api_router.get("/messages/{match_id}/typing-status")
+async def get_typing_status(match_id: str, current_user: dict = Depends(get_current_user)):
+    user_id = str(current_user["_id"])
+    if not ObjectId.is_valid(match_id):
+        raise HTTPException(status_code=400, detail="ID invalide")
+    match = await db.matches.find_one({"_id": ObjectId(match_id)})
+    if not match or user_id not in [match["user1_id"], match["user2_id"]]:
+        raise HTTPException(status_code=403, detail="Accès non autorisé")
+    other_user_id = match["user2_id"] if match["user1_id"] == user_id else match["user1_id"]
+    last_typing = _typing_store.get(f"{match_id}:{other_user_id}", 0)
+    is_typing = (time.time() - last_typing) < 5
+    return {"is_typing": is_typing}
 
 @api_router.post("/messages/{match_id}")
 async def send_message(match_id: str, message: MessageCreate, current_user: dict = Depends(get_current_user)):
