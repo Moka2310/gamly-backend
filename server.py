@@ -812,7 +812,7 @@ async def get_me(current_user: dict = Depends(get_current_user)):
         "status": current_user.get("status", "offline"),
         "gaming_accounts": current_user.get("gaming_accounts", {}),
         "created_at": current_user.get("created_at"),
-        "email_verified": current_user.get("email_verified", False),
+        "email_verified": current_user.get("email_verified", True),  # True by default for accounts created before this feature
     }
 
 # ===================== PROFILE ENDPOINTS =====================
