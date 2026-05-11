@@ -1085,6 +1085,7 @@ async def get_matches(
                     {"match_id": str(match["_id"])},
                     sort=[("timestamp", -1)]
                 )
+                last_activity = last_message["timestamp"] if last_message else match["matched_at"]
                 result.append({
                     "id": str(match["_id"]),
                     "user": {
@@ -1097,6 +1098,7 @@ async def get_matches(
                         "gaming_accounts": other_user.get("gaming_accounts", {})
                     },
                     "matched_at": match["matched_at"],
+                    "last_activity": last_activity,
                     "last_message": {
                         "content": last_message["content"] if last_message else None,
                         "message_type": last_message.get("message_type", "text") if last_message else "text",
@@ -1104,6 +1106,8 @@ async def get_matches(
                         "is_mine": last_message["sender_id"] == user_id if last_message else False
                     } if last_message else None
                 })
+    # Sort by last activity (most recent message or match date)
+    result.sort(key=lambda x: x["last_activity"], reverse=True)
     return result
 
 # ===================== MESSAGES ENDPOINTS =====================
@@ -1141,7 +1145,12 @@ async def get_messages(
 @api_router.post("/messages/{match_id}/typing")
 async def update_typing(match_id: str, current_user: dict = Depends(get_current_user)):
     user_id = str(current_user["_id"])
-    _typing_store[f"{match_id}:{user_id}"] = time.time()
+    now = time.time()
+    _typing_store[f"{match_id}:{user_id}"] = now
+    # Purge stale entries older than 60s to prevent unbounded growth
+    stale = [k for k, v in list(_typing_store.items()) if now - v > 60]
+    for k in stale:
+        _typing_store.pop(k, None)
     return {"ok": True}
 
 @api_router.get("/messages/{match_id}/typing-status")
