@@ -1911,8 +1911,8 @@ PAYMENT_SUCCESS_HTML = """<!DOCTYPE html>
 
   function openApp() {
     if (isMobile) {
-      // Deep link vers l'app mobile (scheme défini dans app.json)
-      window.location.href = 'gamely://';
+      // Deep link vers l'app mobile — ouvre directement la page boutique
+      window.location.href = 'gamely://subscription';
       // Fallback : si le deep link échoue après 2s, afficher message
       setTimeout(function() {
         document.getElementById('hint').textContent = "Si l'app ne s'ouvre pas, revenez-y manuellement.";
@@ -1934,7 +1934,7 @@ PAYMENT_SUCCESS_HTML = """<!DOCTYPE html>
   // Sur mobile : tenter le deep link automatiquement après 1 seconde
   if (isMobile) {
     setTimeout(function() {
-      window.location.href = 'gamely://';
+      window.location.href = 'gamely://subscription';
     }, 1000);
   }
 </script>
@@ -1967,7 +1967,7 @@ PAYMENT_CANCEL_HTML = """<!DOCTYPE html>
   var isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
   function goBack() {
     if (isMobile) {
-      window.location.href = 'gamely://';
+      window.location.href = 'gamely://subscription';
     } else {
       window.location.href = window.location.origin + '/subscription';
     }
