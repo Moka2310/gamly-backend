@@ -7,10 +7,11 @@ from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import re
 import time
+import hmac
 import logging
 from collections import defaultdict
 from pathlib import Path
-from pydantic import BaseModel, Field, EmailStr
+from pydantic import BaseModel, Field, EmailStr, field_validator, model_validator
 from typing import List, Literal, Optional
 import uuid
 from datetime import datetime, date, timedelta
@@ -44,6 +45,15 @@ _rate_limit_store: dict = defaultdict(list)
 
 # In-memory typing indicator store: key "match_id:user_id" -> last_typing_at timestamp
 _typing_store: dict = {}
+
+def get_client_ip(request: Request) -> str:
+    """Resolve the real client IP behind a reverse proxy (e.g. Render.com), which
+    terminates the TCP connection so request.client.host would otherwise reflect
+    the proxy's own address instead of the actual caller for every request."""
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
 
 def check_rate_limit(key: str, max_requests: int = 5, window_seconds: int = 60) -> bool:
     """Returns True if allowed, False if rate limited."""
@@ -115,24 +125,33 @@ logger = logging.getLogger(__name__)
 
 # ===================== MODELS =====================
 
-class UserCreate(BaseModel):
+class NormalizedEmailModel(BaseModel):
+    """Base class ensuring every model with an `email` field is trimmed/lowercased
+    consistently, so uniqueness checks and lookups can't be bypassed by case/whitespace
+    variants of the same address."""
+    @field_validator("email", mode="before", check_fields=False)
+    @classmethod
+    def normalize_email(cls, v):
+        return v.strip().lower() if isinstance(v, str) else v
+
+class UserCreate(NormalizedEmailModel):
     email: EmailStr
     password: str = Field(..., min_length=8, max_length=128)
     nickname: str = Field(..., min_length=2, max_length=30)
 
-class UserLogin(BaseModel):
+class UserLogin(NormalizedEmailModel):
     email: EmailStr
     password: str = Field(..., min_length=1, max_length=128)
 
-class PasswordResetRequest(BaseModel):
+class PasswordResetRequest(NormalizedEmailModel):
     email: EmailStr
 
-class PasswordResetConfirm(BaseModel):
+class PasswordResetConfirm(NormalizedEmailModel):
     email: EmailStr
     reset_code: str = Field(..., min_length=8, max_length=8)
     new_password: str = Field(..., min_length=8, max_length=128)
 
-class EmailVerificationRequest(BaseModel):
+class EmailVerificationRequest(NormalizedEmailModel):
     email: EmailStr
     code: str = Field(..., min_length=6, max_length=6)
 
@@ -228,8 +247,17 @@ class SwipeCreate(BaseModel):
     action: str  # like, dislike
 
 class MessageCreate(BaseModel):
-    content: str = Field(..., min_length=1, max_length=5000)
+    # Audio messages are sent as a base64 data URI, which is far larger than any
+    # text message — cap each type separately instead of one shared max_length.
+    content: str = Field(..., min_length=1, max_length=2_000_000)
     message_type: Literal["text", "audio"] = "text"
+
+    @model_validator(mode="after")
+    def validate_content_length(self):
+        max_len = 2_000_000 if self.message_type == "audio" else 5000
+        if len(self.content) > max_len:
+            raise ValueError(f"Contenu trop volumineux (max {max_len} caractères)")
+        return self
 
 class MatchResponse(BaseModel):
     id: str
@@ -317,6 +345,12 @@ def is_profile_complete(user: dict) -> bool:
     required = ['age', 'gender', 'country', 'console', 'photo']
     return all(user.get(field) for field in required)
 
+def to_object_id(id_str: str, label: str = "ID") -> ObjectId:
+    """Validate and convert a user-supplied id string, raising a clean 400 instead of an uncaught InvalidId."""
+    if not ObjectId.is_valid(id_str):
+        raise HTTPException(status_code=400, detail=f"{label} invalide")
+    return ObjectId(id_str)
+
 # ===================== HEALTH CHECK =====================
 
 @api_router.get("/health")
@@ -335,7 +369,7 @@ async def delete_account_page():
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Supprimer mon compte - GAMLY</title>
+        <title>Supprimer mon compte - GAMELY</title>
         <style>
             * { margin: 0; padding: 0; box-sizing: border-box; }
             body {
@@ -400,7 +434,7 @@ async def delete_account_page():
     <body>
         <div class="container">
             <div class="logo">🎮</div>
-            <h1>Supprimer mon compte GAMLY</h1>
+            <h1>Supprimer mon compte GAMELY</h1>
             <div id="form-container">
                 <p>Pour supprimer votre compte, veuillez vous connecter avec vos identifiants.</p>
                 <div class="warning">
@@ -426,7 +460,7 @@ async def delete_account_page():
             <div class="steps">
                 <h3>Vous pouvez également supprimer votre compte depuis l'app :</h3>
                 <ol>
-                    <li>Ouvrez l'application GAMLY</li>
+                    <li>Ouvrez l'application GAMELY</li>
                     <li>Allez dans l'onglet "Mon Profil"</li>
                     <li>Faites défiler vers le bas</li>
                     <li>Cliquez sur "Supprimer mon compte"</li>
@@ -477,7 +511,7 @@ async def privacy_policy():
 <html lang="fr">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>GAMLY - Politique de Confidentialité</title>
+<title>GAMELY - Politique de Confidentialité</title>
 <style>
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0A0A0F;color:#E0E0E0;line-height:1.7;padding:20px;max-width:800px;margin:0 auto}
 h1{color:#FF1493;font-size:28px;margin:30px 0 10px;border-bottom:2px solid #FF1493;padding-bottom:10px}
@@ -486,7 +520,7 @@ p,li{font-size:15px;margin-bottom:8px;color:#ccc}ul{padding-left:20px}
 </style>
 </head>
 <body>
-<h1>GAMLY - Politique de Confidentialité</h1>
+<h1>GAMELY - Politique de Confidentialité</h1>
 <p>Dernière mise à jour : Mai 2026</p>
 
 <h2>1. Données collectées</h2>
@@ -535,7 +569,7 @@ p,li{font-size:15px;margin-bottom:8px;color:#ccc}ul{padding-left:20px}
 <p>Les mots de passe sont stockés de manière sécurisée (bcrypt). Les communications sont chiffrées via HTTPS. Les tokens d'authentification expirent automatiquement.</p>
 
 <h2>7. Mineurs</h2>
-<p>GAMLY est destiné aux personnes de 13 ans et plus. Les utilisateurs de moins de 18 ans doivent avoir l'accord d'un parent ou tuteur légal.</p>
+<p>GAMELY est destiné aux personnes de 13 ans et plus. Les utilisateurs de moins de 18 ans doivent avoir l'accord d'un parent ou tuteur légal.</p>
 
 <h2>8. Modifications</h2>
 <p>Nous pouvons modifier cette politique à tout moment. Les modifications importantes seront notifiées par email ou dans l'application.</p>
@@ -550,7 +584,7 @@ p,li{font-size:15px;margin-bottom:8px;color:#ccc}ul{padding-left:20px}
 
 @api_router.post("/auth/register")
 async def register(user_data: UserCreate, request: Request):
-    ip = request.client.host if request.client else "unknown"
+    ip = get_client_ip(request)
     if not check_rate_limit(f"register:{ip}", max_requests=5, window_seconds=300):
         raise HTTPException(status_code=429, detail="Trop de tentatives. Réessayez dans quelques minutes.")
     existing = await db.users.find_one({"email": user_data.email})
@@ -597,7 +631,7 @@ async def register(user_data: UserCreate, request: Request):
     try:
         verify_html = f"""
         <div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;background:#0A0A0F;color:#E0E0E0;padding:30px;border-radius:12px;">
-            <h1 style="color:#FF1493;text-align:center;">GAMLY</h1>
+            <h1 style="color:#FF1493;text-align:center;">GAMELY</h1>
             <p>Bienvenue {user_data.nickname} ! Voici ton code de vérification :</p>
             <div style="background:#1a1a2e;border:2px solid #FF1493;border-radius:10px;padding:20px;text-align:center;">
                 <span style="font-size:32px;font-weight:bold;letter-spacing:8px;color:#FF1493;">{verify_code}</span>
@@ -608,7 +642,7 @@ async def register(user_data: UserCreate, request: Request):
         await asyncio.to_thread(resend.Emails.send, {
             "from": SENDER_EMAIL,
             "to": [user_data.email],
-            "subject": "GAMLY - Vérifie ton adresse email",
+            "subject": "GAMELY - Vérifie ton adresse email",
             "html": verify_html
         })
     except Exception as e:
@@ -627,7 +661,7 @@ async def register(user_data: UserCreate, request: Request):
 
 @api_router.post("/auth/login")
 async def login(user_data: UserLogin, request: Request):
-    ip = request.client.host if request.client else "unknown"
+    ip = get_client_ip(request)
     if not check_rate_limit(f"login:{ip}", max_requests=10, window_seconds=60):
         raise HTTPException(status_code=429, detail="Trop de tentatives de connexion. Réessayez dans une minute.")
     clean_email = user_data.email.strip().lower()
@@ -657,7 +691,7 @@ async def login(user_data: UserLogin, request: Request):
 @api_router.post("/auth/forgot-password")
 async def forgot_password(data: PasswordResetRequest, request: Request):
     import random
-    ip = request.client.host if request.client else "unknown"
+    ip = get_client_ip(request)
     if not check_rate_limit(f"forgot:{ip}", max_requests=3, window_seconds=300):
         raise HTTPException(status_code=429, detail="Trop de demandes. Réessayez dans quelques minutes.")
     user = await db.users.find_one({"email": data.email})
@@ -673,7 +707,7 @@ async def forgot_password(data: PasswordResetRequest, request: Request):
     )
     html_content = f"""
     <div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;background:#0A0A0F;color:#E0E0E0;padding:30px;border-radius:12px;">
-        <h1 style="color:#FF1493;text-align:center;">GAMLY</h1>
+        <h1 style="color:#FF1493;text-align:center;">GAMELY</h1>
         <p>Voici votre code de réinitialisation :</p>
         <div style="background:#1a1a2e;border:2px solid #FF1493;border-radius:10px;padding:20px;text-align:center;">
             <span style="font-size:32px;font-weight:bold;letter-spacing:8px;color:#FF1493;">{code}</span>
@@ -685,7 +719,7 @@ async def forgot_password(data: PasswordResetRequest, request: Request):
         params = {
             "from": SENDER_EMAIL,
             "to": [data.email],
-            "subject": "GAMLY - Code de réinitialisation",
+            "subject": "GAMELY - Code de réinitialisation",
             "html": html_content
         }
         await asyncio.to_thread(resend.Emails.send, params)
@@ -698,7 +732,7 @@ async def forgot_password(data: PasswordResetRequest, request: Request):
 
 @api_router.post("/auth/reset-password")
 async def reset_password(data: PasswordResetConfirm, request: Request):
-    ip = request.client.host if request.client else "unknown"
+    ip = get_client_ip(request)
     # Rate limit: 5 attempts per 30 minutes per IP to prevent brute force
     if not check_rate_limit(f"reset:{ip}", max_requests=5, window_seconds=1800):
         raise HTTPException(status_code=429, detail="Trop de tentatives. Réessayez dans 30 minutes.")
@@ -708,7 +742,7 @@ async def reset_password(data: PasswordResetConfirm, request: Request):
     if datetime.utcnow() > reset_data["expires"]:
         await db.reset_codes.delete_one({"email": data.email})
         raise HTTPException(status_code=400, detail="Code expiré. Demandez un nouveau code.")
-    if reset_data["code"] != data.reset_code:
+    if not hmac.compare_digest(reset_data["code"], data.reset_code):
         raise HTTPException(status_code=400, detail="Code incorrect")
     user = await db.users.find_one({"email": data.email})
     if not user:
@@ -737,14 +771,17 @@ async def delete_account(data: DeleteAccountRequest, current_user: dict = Depend
     return {"message": "Compte supprimé avec succès"}
 
 @api_router.post("/auth/verify-email")
-async def verify_email(data: EmailVerificationRequest):
+async def verify_email(data: EmailVerificationRequest, request: Request):
+    ip = get_client_ip(request)
+    if not check_rate_limit(f"verify_email:{ip}:{data.email}", max_requests=5, window_seconds=600):
+        raise HTTPException(status_code=429, detail="Trop de tentatives. Réessayez plus tard.")
     record = await db.email_verifications.find_one({"email": data.email})
     if not record:
         raise HTTPException(status_code=400, detail="Aucun code de vérification trouvé")
     if datetime.utcnow() > record["expires"]:
         await db.email_verifications.delete_one({"email": data.email})
         raise HTTPException(status_code=400, detail="Code expiré. Demandez un nouveau code.")
-    if record["code"] != data.code:
+    if not hmac.compare_digest(record["code"], data.code):
         raise HTTPException(status_code=400, detail="Code incorrect")
     await db.users.update_one({"email": data.email}, {"$set": {"email_verified": True}})
     await db.email_verifications.delete_one({"email": data.email})
@@ -753,7 +790,7 @@ async def verify_email(data: EmailVerificationRequest):
 @api_router.post("/auth/resend-verification")
 async def resend_verification(data: PasswordResetRequest, request: Request):
     import random as _random
-    ip = request.client.host if request.client else "unknown"
+    ip = get_client_ip(request)
     if not check_rate_limit(f"verify_resend:{ip}", max_requests=3, window_seconds=300):
         raise HTTPException(status_code=429, detail="Trop de demandes. Réessayez dans quelques minutes.")
     user = await db.users.find_one({"email": data.email})
@@ -771,7 +808,7 @@ async def resend_verification(data: PasswordResetRequest, request: Request):
     try:
         verify_html = f"""
         <div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;background:#0A0A0F;color:#E0E0E0;padding:30px;border-radius:12px;">
-            <h1 style="color:#FF1493;text-align:center;">GAMLY</h1>
+            <h1 style="color:#FF1493;text-align:center;">GAMELY</h1>
             <p>Voici ton nouveau code de vérification :</p>
             <div style="background:#1a1a2e;border:2px solid #FF1493;border-radius:10px;padding:20px;text-align:center;">
                 <span style="font-size:32px;font-weight:bold;letter-spacing:8px;color:#FF1493;">{verify_code}</span>
@@ -782,7 +819,7 @@ async def resend_verification(data: PasswordResetRequest, request: Request):
         await asyncio.to_thread(resend.Emails.send, {
             "from": SENDER_EMAIL,
             "to": [data.email],
-            "subject": "GAMLY - Nouveau code de vérification",
+            "subject": "GAMELY - Nouveau code de vérification",
             "html": verify_html
         })
     except Exception as e:
@@ -925,7 +962,8 @@ async def discover_profiles(
         "_id": {"$nin": exclude_ids},
         "photo": {"$ne": None},
         "age": {"$ne": None},
-        "console": {"$ne": None}
+        "console": {"$ne": None},
+        "is_banned": {"$ne": True}
     }
     if gender:
         query["gender"] = gender
@@ -972,6 +1010,7 @@ async def discover_profiles(
 
 @api_router.post("/swipe")
 async def swipe(swipe_data: SwipeCreate, current_user: dict = Depends(get_current_user)):
+    to_object_id(swipe_data.swiped_user_id, "User ID")  # validate before recording the swipe
     user_id = str(current_user["_id"])
     today = date.today().isoformat()
     if current_user.get("last_swipe_reset") != today:
@@ -1011,17 +1050,6 @@ async def swipe(swipe_data: SwipeCreate, current_user: dict = Depends(get_curren
             "swiped_user_id": user_id,
             "action": "like"
         })
-        demo_emails = ["sarah.gamer@example.com", "alex.pro@example.com", "luna.pcmaster@example.com"]
-        swiped_user = await db.users.find_one({"_id": ObjectId(swipe_data.swiped_user_id)})
-        if swiped_user and swiped_user.get("email") in demo_emails and not other_swipe:
-            auto_swipe_doc = {
-                "swiper_id": swipe_data.swiped_user_id,
-                "swiped_user_id": user_id,
-                "action": "like",
-                "timestamp": datetime.utcnow()
-            }
-            await db.swipes.insert_one(auto_swipe_doc)
-            other_swipe = auto_swipe_doc
         if other_swipe:
             is_match = True
             match_doc = {
@@ -1030,7 +1058,7 @@ async def swipe(swipe_data: SwipeCreate, current_user: dict = Depends(get_curren
                 "matched_at": datetime.utcnow()
             }
             match_result = await db.matches.insert_one(match_doc)
-            matched_user = await db.users.find_one({"_id": ObjectId(swipe_data.swiped_user_id)})
+            matched_user = await db.users.find_one({"_id": to_object_id(swipe_data.swiped_user_id)})
             if matched_user:
                 match_data = {
                     "match_id": str(match_result.inserted_id),
@@ -1120,7 +1148,7 @@ async def get_messages(
     current_user: dict = Depends(get_current_user)
 ):
     user_id = str(current_user["_id"])
-    match = await db.matches.find_one({"_id": ObjectId(match_id)})
+    match = await db.matches.find_one({"_id": to_object_id(match_id, "Match ID")})
     if not match:
         raise HTTPException(status_code=404, detail="Match non trouvé")
     if user_id not in [match["user1_id"], match["user2_id"]]:
@@ -1185,7 +1213,7 @@ async def send_message(match_id: str, message: MessageCreate, current_user: dict
             )
             raise HTTPException(status_code=403, detail="Votre compte a été suspendu pour comportement inapproprié répété.")
         raise HTTPException(status_code=400, detail=f"Message bloqué: contenu inapproprié. {3 - violation_count} avertissement(s) restant(s).")
-    match = await db.matches.find_one({"_id": ObjectId(match_id)})
+    match = await db.matches.find_one({"_id": to_object_id(match_id, "Match ID")})
     if not match:
         raise HTTPException(status_code=404, detail="Match non trouvé")
     if user_id not in [match["user1_id"], match["user2_id"]]:
@@ -1265,7 +1293,7 @@ import stripe as stripe_lib
 # ===================== STRIPE PAYMENT ENDPOINTS =====================
 
 PAYMENT_PACKAGES = {
-    "premium": {"amount": 17.99, "description": "GAMLY Premium - Swipes illimites", "type": "subscription", "google_product_id": "gamly_premium_monthly"},
+    "premium": {"amount": 17.99, "description": "GAMELY Premium - Swipes illimites", "type": "subscription", "google_product_id": "gamly_premium_monthly"},
     "pack_50": {"amount": 5.99, "description": "50 Swipes", "coins": 50, "type": "pack", "google_product_id": "gamly_swipes_50"},
     "pack_200": {"amount": 9.99, "description": "200 Swipes", "coins": 200, "type": "pack", "google_product_id": "gamly_swipes_200"},
 }
@@ -1506,32 +1534,11 @@ async def verify_google_purchase(data: GooglePlayPurchase, current_user: dict = 
 async def get_products():
     return {
         "products": [
-            {"id": "gamly_premium_monthly", "type": "subscription", "price": "$17.99/mois", "description": "GAMLY Premium - Swipes illimités"},
+            {"id": "gamly_premium_monthly", "type": "subscription", "price": "$17.99/mois", "description": "GAMELY Premium - Swipes illimités"},
             {"id": "gamly_swipes_50", "type": "consumable", "price": "$5.99", "description": "50 Swipes"},
             {"id": "gamly_swipes_200", "type": "consumable", "price": "$9.99", "description": "200 Swipes"},
         ]
     }
-
-@api_router.post("/subscription/upgrade")
-async def upgrade_subscription(current_user: dict = Depends(get_current_user)):
-    await db.users.update_one({"_id": current_user["_id"]}, {"$set": {"is_premium": True}})
-    return {"success": True, "message": "Félicitations! Vous êtes maintenant Premium!", "is_premium": True}
-
-class PurchaseSwipes(BaseModel):
-    pack: str
-
-@api_router.post("/subscription/buy-swipes")
-async def buy_swipes(purchase: PurchaseSwipes, current_user: dict = Depends(get_current_user)):
-    packs = {
-        "pack_50": {"coins": 50, "price": 3.99},
-        "pack_200": {"coins": 200, "price": 9.99},
-    }
-    pack_info = packs.get(purchase.pack)
-    if not pack_info:
-        raise HTTPException(status_code=400, detail="Pack invalide")
-    await db.users.update_one({"_id": current_user["_id"]}, {"$inc": {"coins": pack_info["coins"]}})
-    new_coins = current_user.get("coins", 0) + pack_info["coins"]
-    return {"success": True, "message": f"+{pack_info['coins']} swipes ajoutés!", "coins_added": pack_info["coins"], "total_coins": new_coins, "price": pack_info["price"]}
 
 @api_router.post("/subscription/cancel")
 async def cancel_subscription(current_user: dict = Depends(get_current_user)):
@@ -1543,13 +1550,14 @@ async def cancel_subscription(current_user: dict = Depends(get_current_user)):
 @api_router.delete("/matches/{match_id}")
 async def delete_match(match_id: str, current_user: dict = Depends(get_current_user)):
     user_id = str(current_user["_id"])
-    match = await db.matches.find_one({"_id": ObjectId(match_id)})
+    match_oid = to_object_id(match_id, "Match ID")
+    match = await db.matches.find_one({"_id": match_oid})
     if not match:
         raise HTTPException(status_code=404, detail="Match non trouvé")
     if user_id not in [match["user1_id"], match["user2_id"]]:
         raise HTTPException(status_code=403, detail="Accès non autorisé")
     await db.messages.delete_many({"match_id": match_id})
-    await db.matches.delete_one({"_id": ObjectId(match_id)})
+    await db.matches.delete_one({"_id": match_oid})
     return {"success": True, "message": "Match supprimé"}
 
 # ===================== TEAMS ENDPOINTS =====================
@@ -1599,17 +1607,18 @@ async def get_my_team(current_user: dict = Depends(get_current_user)):
 @api_router.post("/teams/{team_id}/join")
 async def join_team(team_id: str, current_user: dict = Depends(get_current_user)):
     user_id = str(current_user["_id"])
+    team_oid = to_object_id(team_id, "Team ID")
     existing = await db.teams.find_one({"$or": [{"owner_id": user_id}, {"member_ids": user_id}]})
     if existing:
         raise HTTPException(status_code=400, detail="Vous êtes déjà dans une team")
-    team = await db.teams.find_one({"_id": ObjectId(team_id)})
+    team = await db.teams.find_one({"_id": team_oid})
     if not team:
         raise HTTPException(status_code=404, detail="Team non trouvée")
 
     # Atomic update: only succeeds if team has room and is still recruiting (prevents race condition)
     result = await db.teams.find_one_and_update(
         {
-            "_id": ObjectId(team_id),
+            "_id": team_oid,
             "$expr": {"$lt": [{"$size": "$member_ids"}, 4]},
             "looking_for_count": {"$gt": 0},
             "member_ids": {"$ne": user_id}
@@ -1624,21 +1633,23 @@ async def join_team(team_id: str, current_user: dict = Depends(get_current_user)
 @api_router.post("/teams/{team_id}/leave")
 async def leave_team(team_id: str, current_user: dict = Depends(get_current_user)):
     user_id = str(current_user["_id"])
-    team = await db.teams.find_one({"_id": ObjectId(team_id)})
+    team_oid = to_object_id(team_id, "Team ID")
+    team = await db.teams.find_one({"_id": team_oid})
     if not team:
         raise HTTPException(status_code=404, detail="Team non trouvée")
     if user_id not in team.get("member_ids", []):
         raise HTTPException(status_code=400, detail="Vous n'êtes pas dans cette team")
     if team["owner_id"] == user_id:
-        await db.teams.delete_one({"_id": ObjectId(team_id)})
+        await db.teams.delete_one({"_id": team_oid})
         return {"success": True, "message": "Team supprimée"}
-    await db.teams.update_one({"_id": ObjectId(team_id)}, {"$pull": {"member_ids": user_id}, "$inc": {"looking_for_count": 1}})
+    await db.teams.update_one({"_id": team_oid}, {"$pull": {"member_ids": user_id}, "$inc": {"looking_for_count": 1}})
     return {"success": True, "message": "Vous avez quitté la team"}
 
 @api_router.put("/teams/{team_id}")
 async def update_team(team_id: str, team_data: TeamUpdate, current_user: dict = Depends(get_current_user)):
     user_id = str(current_user["_id"])
-    team = await db.teams.find_one({"_id": ObjectId(team_id)})
+    team_oid = to_object_id(team_id, "Team ID")
+    team = await db.teams.find_one({"_id": team_oid})
     if not team:
         raise HTTPException(status_code=404, detail="Team non trouvée")
     if team["owner_id"] != user_id:
@@ -1662,19 +1673,20 @@ async def update_team(team_id: str, team_data: TeamUpdate, current_user: dict = 
     if team_data.play_time is not None:
         update_data["play_time"] = team_data.play_time
     if update_data:
-        await db.teams.update_one({"_id": ObjectId(team_id)}, {"$set": update_data})
-    updated_team = await db.teams.find_one({"_id": ObjectId(team_id)})
+        await db.teams.update_one({"_id": team_oid}, {"$set": update_data})
+    updated_team = await db.teams.find_one({"_id": team_oid})
     return await format_team_response(updated_team)
 
 @api_router.delete("/teams/{team_id}")
 async def delete_team(team_id: str, current_user: dict = Depends(get_current_user)):
     user_id = str(current_user["_id"])
-    team = await db.teams.find_one({"_id": ObjectId(team_id)})
+    team_oid = to_object_id(team_id, "Team ID")
+    team = await db.teams.find_one({"_id": team_oid})
     if not team:
         raise HTTPException(status_code=404, detail="Team non trouvée")
     if team["owner_id"] != user_id:
         raise HTTPException(status_code=403, detail="Seul le propriétaire peut supprimer la team")
-    await db.teams.delete_one({"_id": ObjectId(team_id)})
+    await db.teams.delete_one({"_id": team_oid})
     return {"success": True, "message": "Team supprimée"}
 
 async def format_team_response(team: dict) -> dict:
@@ -1709,7 +1721,7 @@ async def format_team_response(team: dict) -> dict:
 @api_router.post("/game-nights")
 async def create_game_night(data: GameNightCreate, current_user: dict = Depends(get_current_user)):
     user_id = str(current_user["_id"])
-    match = await db.matches.find_one({"_id": ObjectId(data.match_id)})
+    match = await db.matches.find_one({"_id": to_object_id(data.match_id, "Match ID")})
     if not match:
         raise HTTPException(status_code=404, detail="Match non trouve")
     if user_id not in [match["user1_id"], match["user2_id"]]:
@@ -1751,7 +1763,7 @@ async def create_game_night(data: GameNightCreate, current_user: dict = Depends(
 @api_router.get("/game-nights/{match_id}")
 async def get_game_nights(match_id: str, current_user: dict = Depends(get_current_user)):
     user_id = str(current_user["_id"])
-    match = await db.matches.find_one({"_id": ObjectId(match_id)})
+    match = await db.matches.find_one({"_id": to_object_id(match_id, "Match ID")})
     if not match:
         raise HTTPException(status_code=404, detail="Match non trouve")
     if user_id not in [match["user1_id"], match["user2_id"]]:
@@ -1773,14 +1785,15 @@ async def get_game_nights(match_id: str, current_user: dict = Depends(get_curren
 @api_router.put("/game-nights/{game_night_id}/respond")
 async def respond_game_night(game_night_id: str, data: GameNightRespond, current_user: dict = Depends(get_current_user)):
     user_id = str(current_user["_id"])
-    gn = await db.game_nights.find_one({"_id": ObjectId(game_night_id)})
+    game_night_oid = to_object_id(game_night_id, "Game Night ID")
+    gn = await db.game_nights.find_one({"_id": game_night_oid})
     if not gn:
         raise HTTPException(status_code=404, detail="Game Night non trouve")
     if gn["invited_id"] != user_id:
         raise HTTPException(status_code=403, detail="Seul l'invite peut repondre")
     if data.status not in ["accepted", "declined"]:
         raise HTTPException(status_code=400, detail="Statut invalide")
-    await db.game_nights.update_one({"_id": ObjectId(game_night_id)}, {"$set": {"status": data.status}})
+    await db.game_nights.update_one({"_id": game_night_oid}, {"$set": {"status": data.status}})
     status_text = "accepte" if data.status == "accepted" else "decline"
     system_msg = {
         "match_id": gn["match_id"],
@@ -1795,12 +1808,13 @@ async def respond_game_night(game_night_id: str, data: GameNightRespond, current
 @api_router.delete("/game-nights/{game_night_id}")
 async def cancel_game_night(game_night_id: str, current_user: dict = Depends(get_current_user)):
     user_id = str(current_user["_id"])
-    gn = await db.game_nights.find_one({"_id": ObjectId(game_night_id)})
+    game_night_oid = to_object_id(game_night_id, "Game Night ID")
+    gn = await db.game_nights.find_one({"_id": game_night_oid})
     if not gn:
         raise HTTPException(status_code=404, detail="Game Night non trouve")
     if gn["creator_id"] != user_id:
         raise HTTPException(status_code=403, detail="Seul le createur peut annuler")
-    await db.game_nights.delete_one({"_id": ObjectId(game_night_id)})
+    await db.game_nights.delete_one({"_id": game_night_oid})
     return {"message": "Game Night annule"}
 
 # ===================== INCLUDE ROUTER & MIDDLEWARE =====================
@@ -1821,7 +1835,7 @@ PRIVACY_POLICY_HTML = """<!DOCTYPE html>
 <html lang="fr">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>GAMLY - Politique de Confidentialite</title>
+<title>GAMELY - Politique de Confidentialite</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0A0A0F;color:#E0E0E0;line-height:1.7;padding:20px;max-width:800px;margin:0 auto}
@@ -1836,10 +1850,10 @@ a{color:#FF1493}
 </style>
 </head>
 <body>
-<div class="header"><h1>GAMLY</h1><p>Politique de Confidentialite</p></div>
+<div class="header"><h1>GAMELY</h1><p>Politique de Confidentialite</p></div>
 <p class="date">Derniere mise a jour : 1er mars 2026</p>
 <h2>1. Introduction</h2>
-<p>GAMLY est une application de rencontre pour gamers. Nous protegeons vos donnees personnelles.</p>
+<p>GAMELY est une application de rencontre pour gamers. Nous protegeons vos donnees personnelles.</p>
 <h2>2. Contact</h2>
 <p><a href="mailto:contact@gamly.app">contact@gamly.app</a></p>
 </body>
@@ -1849,7 +1863,7 @@ TERMS_HTML = """<!DOCTYPE html>
 <html lang="fr">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>GAMLY - Conditions d'Utilisation</title>
+<title>GAMELY - Conditions d'Utilisation</title>
 <style>
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0A0A0F;color:#E0E0E0;padding:20px;max-width:800px;margin:0 auto}
 h1,h2{color:#FF1493}
@@ -1857,7 +1871,7 @@ a{color:#FF1493}
 </style>
 </head>
 <body>
-<h1>GAMLY - Conditions d'Utilisation</h1>
+<h1>GAMELY - Conditions d'Utilisation</h1>
 <p>Derniere mise a jour : 1er mars 2026</p>
 <h2>Contact</h2>
 <p><a href="mailto:contact@gamly.app">contact@gamly.app</a></p>
@@ -1872,20 +1886,12 @@ async def privacy_policy_root():
 async def terms_of_service():
     return TERMS_HTML
 
-@api_router.get("/privacy-policy", response_class=HTMLResponse)
-async def api_privacy_policy():
-    return PRIVACY_POLICY_HTML
-
-@api_router.get("/terms", response_class=HTMLResponse)
-async def api_terms_of_service():
-    return TERMS_HTML
-
 PAYMENT_SUCCESS_HTML = """<!DOCTYPE html>
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Paiement réussi - GAMLY</title>
+<title>Paiement réussi - GAMELY</title>
 <style>
   body { margin: 0; font-family: Arial, sans-serif; background: #0a0a0f; color: #E0E0E0; display: flex; align-items: center; justify-content: center; min-height: 100vh; text-align: center; padding: 20px; box-sizing: border-box; }
   .card { background: #1a1a2e; border-radius: 20px; padding: 40px 30px; max-width: 400px; width: 100%; }
@@ -1901,7 +1907,7 @@ PAYMENT_SUCCESS_HTML = """<!DOCTYPE html>
 <div class="card">
   <div class="icon">✅</div>
   <h1>Paiement réussi !</h1>
-  <p>Merci pour votre achat. Votre compte GAMLY a été mis à jour.</p>
+  <p>Merci pour votre achat. Votre compte GAMELY a été mis à jour.</p>
   <button class="btn" onclick="openApp()">Retour à l'app</button>
   <button class="btn btn-secondary" onclick="closeOrBack()">Fermer cette page</button>
   <p class="hint" id="hint"></p>
@@ -1919,7 +1925,7 @@ PAYMENT_SUCCESS_HTML = """<!DOCTYPE html>
       }, 2000);
     } else {
       // Version bureau : l'app est mobile, afficher un message d'instruction
-      document.getElementById('hint').textContent = "Retournez dans l'application GAMLY sur votre téléphone.";
+      document.getElementById('hint').textContent = "Retournez dans l'application GAMELY sur votre téléphone.";
     }
   }
 
@@ -1946,7 +1952,7 @@ PAYMENT_CANCEL_HTML = """<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Paiement annulé - GAMLY</title>
+<title>Paiement annulé - GAMELY</title>
 <style>
   body { margin: 0; font-family: Arial, sans-serif; background: #0a0a0f; color: #E0E0E0; display: flex; align-items: center; justify-content: center; min-height: 100vh; text-align: center; padding: 20px; box-sizing: border-box; }
   .card { background: #1a1a2e; border-radius: 20px; padding: 40px 30px; max-width: 400px; width: 100%; }
