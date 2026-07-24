@@ -20,6 +20,7 @@ import bcrypt
 from bson import ObjectId
 import asyncio
 import resend
+from push_notifications import send_push_to_user
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -231,6 +232,13 @@ class GameNightCreate(BaseModel):
 
 class GameNightRespond(BaseModel):
     status: str  # "accepted" or "declined"
+
+class PushTokenRegister(BaseModel):
+    token: str
+    platform: Optional[str] = None
+
+class PushTokenUnregister(BaseModel):
+    token: str
 
 class TeamResponse(BaseModel):
     id: str
@@ -614,6 +622,7 @@ async def register(user_data: UserCreate, request: Request):
         "is_premium": False,
         "coins": 0,
         "email_verified": False,
+        "push_tokens": [],
     }
     result = await db.users.insert_one(user_doc)
     user_id = str(result.inserted_id)
@@ -1070,6 +1079,12 @@ async def swipe(swipe_data: SwipeCreate, current_user: dict = Depends(get_curren
                     },
                     "your_nickname": current_user["nickname"]
                 }
+                asyncio.create_task(send_push_to_user(
+                    matched_user,
+                    title="Nouveau match !",
+                    body=f"Tu as un match avec {current_user['nickname']} !",
+                    data={"type": "match", "match_id": str(match_result.inserted_id)},
+                ))
     updated_user = await db.users.find_one({"_id": current_user["_id"]})
     if updated_user.get("is_premium"):
         swipes_remaining = -1
@@ -1235,6 +1250,15 @@ async def send_message(match_id: str, message: MessageCreate, current_user: dict
         "timestamp": datetime.utcnow()
     }
     result = await db.messages.insert_one(message_doc)
+    recipient = await db.users.find_one({"_id": to_object_id(other_user_id)})
+    if recipient:
+        push_body = "🎤 Message vocal" if message.message_type == "audio" else message.content[:100]
+        asyncio.create_task(send_push_to_user(
+            recipient,
+            title=current_user["nickname"],
+            body=push_body,
+            data={"type": "message", "match_id": match_id},
+        ))
     return {
         "id": str(result.inserted_id),
         "match_id": match_id,
@@ -1716,6 +1740,21 @@ async def format_team_response(team: dict) -> dict:
         "created_at": team.get("created_at")
     }
 
+# ===================== PUSH NOTIFICATIONS =====================
+
+@api_router.post("/push/register")
+async def register_push_token(data: PushTokenRegister, current_user: dict = Depends(get_current_user)):
+    tokens = [t for t in current_user.get("push_tokens", []) if t.get("token") != data.token]
+    tokens.append({"token": data.token, "platform": data.platform, "updated_at": datetime.utcnow()})
+    await db.users.update_one({"_id": current_user["_id"]}, {"$set": {"push_tokens": tokens}})
+    return {"success": True}
+
+@api_router.post("/push/unregister")
+async def unregister_push_token(data: PushTokenUnregister, current_user: dict = Depends(get_current_user)):
+    tokens = [t for t in current_user.get("push_tokens", []) if t.get("token") != data.token]
+    await db.users.update_one({"_id": current_user["_id"]}, {"$set": {"push_tokens": tokens}})
+    return {"success": True}
+
 # ===================== GAME NIGHT ENDPOINTS =====================
 
 @api_router.post("/game-nights")
@@ -1736,7 +1775,9 @@ async def create_game_night(data: GameNightCreate, current_user: dict = Depends(
         "scheduled_time": data.scheduled_time,
         "note": data.note or "",
         "status": "pending",
-        "created_at": datetime.utcnow()
+        "created_at": datetime.utcnow(),
+        "reminder_10min_sent": False,
+        "started_notif_sent": False,
     }
     result = await db.game_nights.insert_one(game_night_doc)
     system_msg = {
@@ -1747,6 +1788,14 @@ async def create_game_night(data: GameNightCreate, current_user: dict = Depends(
         "timestamp": datetime.utcnow()
     }
     await db.messages.insert_one(system_msg)
+    invited_user = await db.users.find_one({"_id": to_object_id(other_user_id)})
+    if invited_user:
+        asyncio.create_task(send_push_to_user(
+            invited_user,
+            title="Game Night proposé !",
+            body=f"{current_user['nickname']} te propose {data.game} le {data.scheduled_date} à {data.scheduled_time}",
+            data={"type": "game_night_proposed", "match_id": data.match_id, "game_night_id": str(result.inserted_id)},
+        ))
     return {
         "id": str(result.inserted_id),
         "match_id": data.match_id,
@@ -2013,6 +2062,56 @@ async def payment_success_page(session_id: str = ""):
 @app.get("/payment-cancel", response_class=HTMLResponse)
 async def payment_cancel_page():
     return PAYMENT_CANCEL_HTML
+
+async def notify_game_night(gn: dict, title: str, body: str):
+    for uid in [gn["creator_id"], gn["invited_id"]]:
+        user = await db.users.find_one({"_id": to_object_id(uid)})
+        if user:
+            await send_push_to_user(
+                user,
+                title,
+                body,
+                data={"type": "game_night_reminder", "match_id": gn["match_id"], "game_night_id": str(gn["_id"])},
+            )
+
+async def check_and_send_game_night_reminders():
+    now = datetime.utcnow()
+    window_end = now + timedelta(minutes=10)
+    accepted = await db.game_nights.find({"status": "accepted"}).to_list(500)
+    for gn in accepted:
+        try:
+            # Treated as naive UTC, consistent with datetime.utcnow() used throughout
+            # this file. No per-game-night timezone is stored today, so reminders for
+            # cross-timezone matches may land at the "wrong" local time — pre-existing gap.
+            scheduled_dt = datetime.strptime(f"{gn['scheduled_date']} {gn['scheduled_time']}", "%Y-%m-%d %H:%M")
+        except ValueError:
+            continue
+        if not gn.get("reminder_10min_sent") and now <= scheduled_dt <= window_end:
+            claimed = await db.game_nights.find_one_and_update(
+                {"_id": gn["_id"], "reminder_10min_sent": {"$ne": True}},
+                {"$set": {"reminder_10min_sent": True}},
+            )
+            if claimed:
+                await notify_game_night(gn, "Game Night dans 10 minutes !", f"{gn['game']} commence bientôt, prépare-toi !")
+        if not gn.get("started_notif_sent") and scheduled_dt <= now <= scheduled_dt + timedelta(minutes=2):
+            claimed = await db.game_nights.find_one_and_update(
+                {"_id": gn["_id"], "started_notif_sent": {"$ne": True}},
+                {"$set": {"started_notif_sent": True}},
+            )
+            if claimed:
+                await notify_game_night(gn, "Ça commence !", f"{gn['game']} a commencé !")
+
+async def game_night_reminder_loop():
+    while True:
+        try:
+            await check_and_send_game_night_reminders()
+        except Exception as e:
+            logger.error(f"Game night reminder loop error: {e}")
+        await asyncio.sleep(60)
+
+@app.on_event("startup")
+async def start_game_night_scheduler():
+    asyncio.create_task(game_night_reminder_loop())
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
