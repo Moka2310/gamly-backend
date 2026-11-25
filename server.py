@@ -340,6 +340,13 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
             raise HTTPException(status_code=401, detail="User not found")
         if user.get("is_banned"):
             raise HTTPException(status_code=403, detail="Compte suspendu")
+        # Premium achete dans l appli (RevenueCat) : expire 2 jours apres la date de fin connue
+        # (le webhook EXPIRATION le coupe normalement ; ceci est le filet de securite)
+        exp = user.get("premium_expires_at")
+        if user.get("is_premium") and user.get("premium_source") == "revenuecat" and exp \
+                and exp + timedelta(days=2) < datetime.utcnow():
+            await db.users.update_one({"_id": user["_id"]}, {"$set": {"is_premium": False}})
+            user["is_premium"] = False
         return user
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expired")
@@ -681,6 +688,8 @@ async def login(user_data: UserLogin, request: Request):
     user = await db.users.find_one({"email": clean_email})
     if not user:
         raise HTTPException(status_code=401, detail="Email ou mot de passe incorrect")
+    if not user.get("password_hash"):
+        raise HTTPException(status_code=401, detail="Ce compte utilise la connexion Google. Appuie sur « Continuer avec Google ».")
     if not verify_password(clean_password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Email ou mot de passe incorrect")
     if user.get("is_banned"):
@@ -771,12 +780,14 @@ async def reset_password(data: PasswordResetConfirm, request: Request):
     return {"message": "Mot de passe mis à jour avec succès!"}
 
 class DeleteAccountRequest(BaseModel):
-    password: str = Field(..., min_length=1, max_length=128)
+    password: Optional[str] = Field(None, max_length=128)
 
 @api_router.delete("/auth/delete-account")
 async def delete_account(data: DeleteAccountRequest, current_user: dict = Depends(get_current_user)):
-    if not verify_password(data.password, current_user["password_hash"]):
-        raise HTTPException(status_code=401, detail="Mot de passe incorrect")
+    # Compte cree avec Google (pas de mot de passe) : le jeton de connexion suffit
+    if current_user.get("password_hash"):
+        if not data.password or not verify_password(data.password, current_user["password_hash"]):
+            raise HTTPException(status_code=401, detail="Mot de passe incorrect")
     user_id = current_user["_id"]
     await db.matches.delete_many({"$or": [{"user1_id": str(user_id)}, {"user2_id": str(user_id)}]})
     await db.messages.delete_many({"$or": [{"sender_id": str(user_id)}, {"receiver_id": str(user_id)}]})
@@ -877,7 +888,169 @@ async def get_me(current_user: dict = Depends(get_current_user)):
         "gaming_accounts": current_user.get("gaming_accounts", {}),
         "created_at": current_user.get("created_at"),
         "email_verified": current_user.get("email_verified", True),  # True by default for accounts created before this feature
+        "has_password": bool(current_user.get("password_hash")),
+        "auth_provider": "google" if current_user.get("google_sub") and not current_user.get("password_hash") else "email",
+        "premium_expires_at": current_user.get("premium_expires_at"),
     }
+
+# ===================== CONNEXION GOOGLE =====================
+# GOOGLE_CLIENT_IDS = ID(s) client OAuth acceptes (le client WEB : c est l audience du jeton
+# renvoye par @react-native-google-signin sur Android), separes par des virgules.
+_google_jwks = None
+
+def _verify_google_id_token(id_token: str) -> dict:
+    """Verifie la signature et le contenu d un jeton Google. Renvoie les infos ou leve HTTPException(401)."""
+    global _google_jwks
+    audiences = [a.strip() for a in os.environ.get("GOOGLE_CLIENT_IDS", "").split(",") if a.strip()]
+    if not audiences:
+        raise HTTPException(status_code=503, detail="Connexion Google pas encore configurée")
+    try:
+        if _google_jwks is None:
+            _google_jwks = jwt.PyJWKClient("https://www.googleapis.com/oauth2/v3/certs", cache_keys=True)
+        key = _google_jwks.get_signing_key_from_jwt(id_token).key
+        info = jwt.decode(id_token, key, algorithms=["RS256"], audience=audiences,
+                          options={"require": ["exp", "iat", "sub", "aud", "iss"]})
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning(f"Google id_token refuse: {e}")
+        raise HTTPException(status_code=401, detail="Connexion Google refusée")
+    if info.get("iss") not in ("accounts.google.com", "https://accounts.google.com"):
+        raise HTTPException(status_code=401, detail="Connexion Google refusée")
+    return info
+
+class GoogleAuthRequest(BaseModel):
+    id_token: str = Field(..., min_length=20, max_length=5000)
+
+async def _free_nickname(base: str) -> str:
+    import random as _r
+    base = re.sub(r"[^A-Za-z0-9_]", "", base or "")[:20] or "Gamer"
+    if len(base) < 2 or contains_banned_words(base):
+        base = "Gamer"
+    for i in range(30):
+        nick = base if i == 0 else f"{base}{_r.randint(100, 99999)}"
+        if not await db.users.find_one({"nickname": nick}):
+            return nick
+    return f"Gamer{uuid.uuid4().hex[:8]}"
+
+@api_router.post("/auth/google")
+async def auth_google(data: GoogleAuthRequest, request: Request):
+    ip = get_client_ip(request)
+    if not check_rate_limit(f"google:{ip}", max_requests=20, window_seconds=60):
+        raise HTTPException(status_code=429, detail="Trop de tentatives. Réessayez dans une minute.")
+    info = await asyncio.to_thread(_verify_google_id_token, data.id_token)
+    sub = str(info["sub"])
+    email = (info.get("email") or "").strip().lower()
+    email_ok = bool(info.get("email_verified")) and bool(email)
+    user = await db.users.find_one({"google_sub": sub})
+    is_new = False
+    if not user and email_ok:
+        # Meme e-mail (verifie par Google) qu un compte existant -> meme compte
+        user = await db.users.find_one({"email": email})
+        if user:
+            await db.users.update_one({"_id": user["_id"]}, {"$set": {"google_sub": sub, "email_verified": True}})
+    if not user:
+        if not email_ok:
+            raise HTTPException(status_code=400, detail="Ton compte Google n'a pas d'e-mail vérifié.")
+        nickname = await _free_nickname(info.get("given_name") or email.split("@")[0])
+        user_doc = {
+            "email": email, "password_hash": None, "google_sub": sub, "nickname": nickname,
+            "age": None, "gender": None, "country": None, "console": None, "games": [], "interests": [],
+            "languages": [], "looking_for": None, "photo": None, "bio": None,
+            "created_at": datetime.utcnow(), "swipes_remaining": 10, "swipes_today": 0,
+            "last_swipe_reset": date.today().isoformat(), "is_premium": False, "coins": 0,
+            "email_verified": True, "push_tokens": [],
+        }
+        user_doc["_id"] = (await db.users.insert_one(user_doc)).inserted_id
+        user = user_doc
+        is_new = True
+    if user.get("is_banned"):
+        raise HTTPException(status_code=403, detail="Votre compte a été suspendu pour comportement inapproprié.")
+    user_id = str(user["_id"])
+    return {
+        "token": create_access_token(user_id),
+        "is_new": is_new,
+        "user": {
+            "id": user_id, "email": user["email"], "nickname": user["nickname"],
+            "gender": user.get("gender"), "profile_complete": is_profile_complete(user),
+            "email_verified": True,
+        },
+    }
+
+# ===================== ACHATS DANS L APPLI (RevenueCat) =====================
+# Dans RevenueCat : Integrations > Webhooks, URL .../api/webhook/revenuecat,
+# en-tete Authorization = valeur de REVENUECAT_WEBHOOK_AUTH. L appli fait Purchases.logIn(<id utilisateur GAMELY>).
+RC_SWIPE_PACKS = {"gamly_swipes_50": 50, "gamly_swipes_200": 200}
+RC_PREMIUM_ON = {"INITIAL_PURCHASE", "RENEWAL", "UNCANCELLATION", "PRODUCT_CHANGE",
+                 "SUBSCRIPTION_EXTENDED", "TEMPORARY_ENTITLEMENT_GRANT"}
+
+def _rc_is_premium(ev: dict) -> bool:
+    return "premium" in (ev.get("entitlement_ids") or []) or str(ev.get("product_id", "")).startswith("gamly_premium")
+
+def _rc_ms(ms):
+    return datetime.utcfromtimestamp(ms / 1000) if ms else None
+
+async def _rc_find_user(ev: dict):
+    for cand in [ev.get("app_user_id"), ev.get("original_app_user_id")] + list(ev.get("aliases") or []):
+        if cand and ObjectId.is_valid(str(cand)):
+            u = await db.users.find_one({"_id": ObjectId(str(cand))})
+            if u:
+                return u
+    return None
+
+@api_router.post("/webhook/revenuecat")
+async def revenuecat_webhook(request: Request):
+    secret = os.environ.get("REVENUECAT_WEBHOOK_AUTH", "")
+    got = request.headers.get("authorization", "")
+    if got.lower().startswith("bearer "):
+        got = got[7:]
+    if not secret or not hmac.compare_digest(got.encode(), secret.encode()):
+        raise HTTPException(status_code=401, detail="Non autorisé")
+    try:
+        ev = (await request.json()).get("event") or {}
+    except Exception:
+        raise HTTPException(status_code=400, detail="JSON invalide")
+    etype, eid = ev.get("type", ""), str(ev.get("id") or "")
+    if etype == "TEST" or not eid:
+        return {"ok": True}
+    # Chaque evenement n est traite qu une fois (RevenueCat peut renvoyer le meme)
+    try:
+        await db.revenuecat_events.insert_one({"_id": eid, "type": etype, "app_user_id": ev.get("app_user_id"),
+                                               "product_id": ev.get("product_id"), "environment": ev.get("environment"),
+                                               "received_at": datetime.utcnow()})
+    except Exception:
+        return {"ok": True, "duplicate": True}
+    user = await _rc_find_user(ev)
+    if not user:
+        logger.warning(f"RevenueCat {etype}: utilisateur introuvable ({ev.get('app_user_id')})")
+        return {"ok": True, "user": None}
+    uid = user["_id"]
+    product = str(ev.get("product_id") or "")
+    exp = _rc_ms(ev.get("expiration_at_ms"))
+    if _rc_is_premium(ev):
+        if etype in RC_PREMIUM_ON:
+            await db.users.update_one({"_id": uid}, {"$set": {
+                "is_premium": True, "premium_source": "revenuecat", "premium_expires_at": exp,
+                "premium_product": product, "premium_will_renew": True}})
+        elif etype == "CANCELLATION":
+            if ev.get("cancel_reason") == "CUSTOMER_SUPPORT":  # rembourse -> retire tout de suite
+                await db.users.update_one({"_id": uid}, {"$set": {"is_premium": False, "premium_will_renew": False}})
+            else:  # resilie : reste Premium jusqu a la fin de la periode payee
+                await db.users.update_one({"_id": uid}, {"$set": {"premium_will_renew": False}})
+        elif etype == "EXPIRATION":
+            cur = user.get("premium_expires_at")
+            if not cur or not exp or cur <= exp + timedelta(minutes=5):
+                await db.users.update_one({"_id": uid}, {"$set": {"is_premium": False, "premium_will_renew": False}})
+    elif etype in ("NON_RENEWING_PURCHASE", "INITIAL_PURCHASE") and product.split(":")[0] in RC_SWIPE_PACKS:
+        n = RC_SWIPE_PACKS[product.split(":")[0]]
+        await db.users.update_one({"_id": uid}, {"$inc": {"swipes_remaining": n}})
+        await db.payment_transactions.insert_one({
+            "user_id": str(uid), "package_id": product, "product_id": product, "order_id": ev.get("transaction_id"),
+            "amount": ev.get("price"), "currency": ev.get("currency"), "payment_status": "paid",
+            "payment_method": "revenuecat_" + str(ev.get("store", "")).lower(), "environment": ev.get("environment"),
+            "paid_at": datetime.utcnow(), "created_at": datetime.utcnow()})
+    logger.info(f"RevenueCat {etype} {product} user={uid} env={ev.get('environment')}")
+    return {"ok": True}
 
 # ===================== PROFILE ENDPOINTS =====================
 
