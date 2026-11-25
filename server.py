@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Request
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Request, Query
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import HTMLResponse
 from dotenv import load_dotenv
@@ -162,13 +162,13 @@ class UserProfile(BaseModel):
     gender: Optional[str] = None
     country: Optional[str] = None
     console: Optional[str] = None
-    games: Optional[List[str]] = []
-    interests: Optional[List[str]] = []
+    games: Optional[List[str]] = None  # None = ne pas toucher (avant : [] effaçait la liste à chaque modif partielle)
+    interests: Optional[List[str]] = None  # None = ne pas toucher (avant : [] effaçait la liste à chaque modif partielle)
     looking_for: Optional[str] = None
     photo: Optional[str] = None  # base64 — no size limit here, handled by server upload limits
     bio: Optional[str] = Field(None, max_length=1000)
-    languages: Optional[List[str]] = []
-    availability_periods: Optional[List[str]] = []
+    languages: Optional[List[str]] = None  # None = ne pas toucher (avant : [] effaçait la liste à chaque modif partielle)
+    availability_periods: Optional[List[str]] = None  # None = ne pas toucher (avant : [] effaçait la liste à chaque modif partielle)
     availability_start: Optional[str] = None
     availability_end: Optional[str] = None
     timezone: Optional[str] = None
@@ -1148,7 +1148,7 @@ async def discover_profiles(
     country: Optional[str] = None,
     language: Optional[str] = None,
     game: Optional[str] = None,
-    availability: Optional[List[str]] = None
+    availability: Optional[List[str]] = Query(None)  # Query() obligatoire pour une liste en GET, sinon le filtre est ignoré
 ):
     if (current_user.get("age") or 18) < 18:
         raise HTTPException(status_code=403, detail="GAMELY est réservé aux 18 ans et plus.")
