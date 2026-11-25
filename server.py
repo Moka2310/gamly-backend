@@ -109,7 +109,7 @@ async def get_recent_violation_count(user_id: str) -> int:
     })
 
 # Create the main app
-app = FastAPI(title="GamerSwipe API")
+app = FastAPI(title="GamerSwipe API", docs_url=None, redoc_url=None, openapi_url=None)  # securite : pas de doc publique
 
 # Create a router with the /api prefix
 api_router = APIRouter(prefix="/api")
@@ -158,7 +158,7 @@ class EmailVerificationRequest(NormalizedEmailModel):
 
 class UserProfile(BaseModel):
     nickname: Optional[str] = Field(None, min_length=2, max_length=30)
-    age: Optional[int] = Field(None, ge=13, le=120)
+    age: Optional[int] = Field(None, ge=18, le=120)  # appli de rencontre : 18+
     gender: Optional[str] = None
     country: Optional[str] = None
     console: Optional[str] = None
@@ -674,6 +674,9 @@ async def login(user_data: UserLogin, request: Request):
     if not check_rate_limit(f"login:{ip}", max_requests=10, window_seconds=60):
         raise HTTPException(status_code=429, detail="Trop de tentatives de connexion. Réessayez dans une minute.")
     clean_email = user_data.email.strip().lower()
+    # Limite par compte : 10 essais / 15 min, meme si l IP change a chaque essai
+    if not check_rate_limit(f"login_email:{clean_email}", max_requests=10, window_seconds=900):
+        raise HTTPException(status_code=429, detail="Trop de tentatives de connexion. Réessayez dans 15 minutes.")
     clean_password = user_data.password.strip()
     user = await db.users.find_one({"email": clean_email})
     if not user:
@@ -703,6 +706,8 @@ async def forgot_password(data: PasswordResetRequest, request: Request):
     ip = get_client_ip(request)
     if not check_rate_limit(f"forgot:{ip}", max_requests=3, window_seconds=300):
         raise HTTPException(status_code=429, detail="Trop de demandes. Réessayez dans quelques minutes.")
+    if not check_rate_limit(f"forgot_email:{data.email}", max_requests=3, window_seconds=3600):
+        raise HTTPException(status_code=429, detail="Trop de demandes. Réessayez dans une heure.")
     user = await db.users.find_one({"email": data.email})
     if not user:
         return {"message": "Si cet email existe, un code de réinitialisation a été envoyé."}
@@ -745,6 +750,8 @@ async def reset_password(data: PasswordResetConfirm, request: Request):
     # Rate limit: 5 attempts per 30 minutes per IP to prevent brute force
     if not check_rate_limit(f"reset:{ip}", max_requests=5, window_seconds=1800):
         raise HTTPException(status_code=429, detail="Trop de tentatives. Réessayez dans 30 minutes.")
+    if not check_rate_limit(f"reset_email:{data.email}", max_requests=5, window_seconds=1800):
+        raise HTTPException(status_code=429, detail="Trop de tentatives. Réessayez dans 30 minutes.")
     reset_data = await db.reset_codes.find_one({"email": data.email})
     if not reset_data:
         raise HTTPException(status_code=400, detail="Aucun code de réinitialisation trouvé")
@@ -774,7 +781,16 @@ async def delete_account(data: DeleteAccountRequest, current_user: dict = Depend
     await db.matches.delete_many({"$or": [{"user1_id": str(user_id)}, {"user2_id": str(user_id)}]})
     await db.messages.delete_many({"$or": [{"sender_id": str(user_id)}, {"receiver_id": str(user_id)}]})
     await db.swipes.delete_many({"swiper_id": str(user_id)})
-    await db.swipes.delete_many({"swiped_id": str(user_id)})
+    await db.swipes.delete_many({"swiped_user_id": str(user_id)})
+    uid = str(user_id)
+    await db.messages.delete_many({"sender_id": uid})
+    await db.blocks.delete_many({"$or": [{"blocker_id": uid}, {"blocked_id": uid}]})
+    await db.game_nights.delete_many({"$or": [{"creator_id": uid}, {"invited_id": uid}]})
+    await db.teams.delete_many({"owner_id": uid})
+    await db.teams.update_many({"member_ids": uid}, {"$pull": {"member_ids": uid}, "$inc": {"looking_for_count": 1}})
+    await db.violations.delete_many({"user_id": uid})
+    await db.email_verifications.delete_many({"email": current_user.get("email")})
+    await db.reset_codes.delete_many({"email": current_user.get("email")})
     await db.users.delete_one({"_id": user_id})
     logger.info(f"User account deleted: {user_id}")
     return {"message": "Compte supprimé avec succès"}
@@ -783,6 +799,8 @@ async def delete_account(data: DeleteAccountRequest, current_user: dict = Depend
 async def verify_email(data: EmailVerificationRequest, request: Request):
     ip = get_client_ip(request)
     if not check_rate_limit(f"verify_email:{ip}:{data.email}", max_requests=5, window_seconds=600):
+        raise HTTPException(status_code=429, detail="Trop de tentatives. Réessayez plus tard.")
+    if not check_rate_limit(f"verify_email_e:{data.email}", max_requests=10, window_seconds=3600):
         raise HTTPException(status_code=429, detail="Trop de tentatives. Réessayez plus tard.")
     record = await db.email_verifications.find_one({"email": data.email})
     if not record:
@@ -959,6 +977,8 @@ async def discover_profiles(
     game: Optional[str] = None,
     availability: Optional[List[str]] = None
 ):
+    if (current_user.get("age") or 18) < 18:
+        raise HTTPException(status_code=403, detail="GAMELY est réservé aux 18 ans et plus.")
     user_id = current_user["_id"]
     swiped_ids = await db.swipes.distinct("swiped_user_id", {"swiper_id": str(user_id)})
     swiped_object_ids = [ObjectId(sid) for sid in swiped_ids if ObjectId.is_valid(sid)]
@@ -970,7 +990,7 @@ async def discover_profiles(
     query = {
         "_id": {"$nin": exclude_ids},
         "photo": {"$ne": None},
-        "age": {"$ne": None},
+        "age": {"$gte": 18},  # jamais de mineurs dans Decouvrir
         "console": {"$ne": None},
         "is_banned": {"$ne": True}
     }
@@ -1020,6 +1040,8 @@ async def discover_profiles(
 @api_router.post("/swipe")
 async def swipe(swipe_data: SwipeCreate, current_user: dict = Depends(get_current_user)):
     to_object_id(swipe_data.swiped_user_id, "User ID")  # validate before recording the swipe
+    if (current_user.get("age") or 18) < 18:
+        raise HTTPException(status_code=403, detail="GAMELY est réservé aux 18 ans et plus.")
     user_id = str(current_user["_id"])
     today = date.today().isoformat()
     if current_user.get("last_swipe_reset") != today:
@@ -1429,8 +1451,12 @@ async def stripe_webhook(request: Request):
             # Signature verification active — highly recommended in production
             event = stripe_lib.Webhook.construct_event(body, signature, webhook_secret)
         else:
-            logger.warning("STRIPE_WEBHOOK_SECRET not set — webhook signature not verified (set it in Render for security)")
-            event = _json.loads(body.decode("utf-8"))
+            # Securite : sans secret, on ne peut pas prouver que le message vient de Stripe -> refuse.
+            # (Le statut du paiement est de toute facon verifie aupres de Stripe par /payments/status.)
+            logger.warning("STRIPE_WEBHOOK_SECRET not set — unsigned webhook refused")
+            raise HTTPException(status_code=400, detail="Webhook non signé refusé")
+    except HTTPException:
+        raise
     except stripe_lib.error.SignatureVerificationError:
         logger.warning("Invalid Stripe webhook signature — possible forgery attempt")
         raise HTTPException(status_code=400, detail="Signature invalide")
@@ -1478,8 +1504,10 @@ async def _verify_google_play_token(product_id: str, purchase_token: str) -> boo
     package_name = os.environ.get("GOOGLE_PLAY_PACKAGE_NAME", "com.gamly.dating")
 
     if not service_account_json:
-        logger.warning("GOOGLE_SERVICE_ACCOUNT_JSON not set — Google Play purchase accepted without server-side verification")
-        return True  # Trust the client if no service account is configured
+        # Securite : sans compte de service Google, impossible de prouver l achat -> refuse.
+        # (L appli paie par Stripe ; cette route ne sert que si Google Play Billing est branche un jour.)
+        logger.warning("GOOGLE_SERVICE_ACCOUNT_JSON not set — Google Play purchase REFUSED (cannot verify)")
+        return False
 
     try:
         from google.oauth2 import service_account
@@ -1511,7 +1539,9 @@ async def verify_google_purchase(data: GooglePlayPurchase, current_user: dict = 
     user_id = str(current_user["_id"])
 
     # Prevent duplicate processing (atomic check by order_id)
-    existing = await db.payment_transactions.find_one({"order_id": data.order_id, "payment_status": "paid"})
+    existing = await db.payment_transactions.find_one({
+        "$or": [{"order_id": data.order_id}, {"purchase_token": data.purchase_token}],
+        "payment_status": "paid"})
     if existing:
         return {"status": "already_processed", "message": "Achat déjà traité"}
 
