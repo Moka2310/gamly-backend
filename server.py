@@ -1270,7 +1270,8 @@ async def swipe(swipe_data: SwipeCreate, current_user: dict = Depends(get_curren
                         "id": str(matched_user["_id"]),
                         "nickname": matched_user["nickname"],
                         "photo": matched_user.get("photo"),
-                        "console": matched_user.get("console")
+                        "console": matched_user.get("console"),
+                        "gaming_accounts": matched_user.get("gaming_accounts") or {}
                     },
                     "your_nickname": current_user["nickname"]
                 }
