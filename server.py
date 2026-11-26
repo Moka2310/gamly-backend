@@ -381,6 +381,10 @@ def blur_gaming_accounts(accounts: dict) -> dict:
         return {}
     return {platform: blur_gamertag(tag) for platform, tag in accounts.items() if tag}
 
+def has_unlimited(user: dict) -> bool:
+    """Swipes illimites : Premium ou admin."""
+    return bool(user.get("is_premium")) or bool(user.get("is_admin"))
+
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
     if not credentials:
         raise HTTPException(status_code=401, detail="Token manquant")
@@ -404,6 +408,8 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
             await db.users.update_one({"_id": user["_id"]}, {"$set": {"is_premium": False}})
             user["is_premium"] = False
         return user
+    except HTTPException:
+        raise  # garder 403 Compte suspendu (avant : transforme en 401 generique)
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expired")
     except jwt.InvalidTokenError:
@@ -947,6 +953,7 @@ async def get_me(current_user: dict = Depends(get_current_user)):
         "has_password": bool(current_user.get("password_hash")),
         "auth_provider": "google" if current_user.get("google_sub") and not current_user.get("password_hash") else "email",
         "premium_expires_at": current_user.get("premium_expires_at"),
+        "is_admin": bool(current_user.get("is_admin")),
     }
 
 # ===================== CONNEXION GOOGLE =====================
@@ -1279,7 +1286,7 @@ async def swipe(swipe_data: SwipeCreate, current_user: dict = Depends(get_curren
             {"$set": {"swipes_today": 0, "last_swipe_reset": today}}
         )
         current_user["swipes_today"] = 0
-    if not current_user.get("is_premium", False):
+    if not has_unlimited(current_user):
         swipes_remaining = current_user.get("swipes_remaining", 0)
         coins = current_user.get("coins", 0)
         if swipes_remaining <= 0 and coins <= 0:
@@ -1294,7 +1301,7 @@ async def swipe(swipe_data: SwipeCreate, current_user: dict = Depends(get_curren
         "timestamp": datetime.utcnow()
     }
     await db.swipes.insert_one(swipe_doc)
-    if not current_user.get("is_premium", False):
+    if not has_unlimited(current_user):
         swipes_remaining = current_user.get("swipes_remaining", 0)
         if swipes_remaining > 0:
             await db.users.update_one({"_id": current_user["_id"]}, {"$inc": {"swipes_remaining": -1, "swipes_today": 1}})
@@ -1347,7 +1354,7 @@ async def swipe(swipe_data: SwipeCreate, current_user: dict = Depends(get_curren
         "is_match": is_match,
         "match_data": match_data,
         "swipes_remaining": swipes_remaining,
-        "is_premium": updated_user.get("is_premium", False)
+        "is_premium": has_unlimited(updated_user)
     }
 
 # ===================== MATCHES ENDPOINTS =====================
@@ -1368,7 +1375,7 @@ async def get_matches(
     for match in matches:
         other_user_id = match["user2_id"] if match["user1_id"] == user_id else match["user1_id"]
         other_user = await db.users.find_one({"_id": ObjectId(other_user_id)})
-        if other_user:
+        if other_user and not other_user.get("is_banned"):
             is_blocked = await db.blocks.find_one({
                 "$or": [
                     {"blocker_id": user_id, "blocked_id": other_user_id},
@@ -1547,7 +1554,7 @@ async def unblock_user(user_id: str, current_user: dict = Depends(get_current_us
 
 @api_router.get("/subscription")
 async def get_subscription(current_user: dict = Depends(get_current_user)):
-    is_premium = current_user.get("is_premium", False)
+    is_premium = has_unlimited(current_user)
     swipes_remaining = current_user.get("swipes_remaining", 0)
     coins = current_user.get("coins", 0)
     return {
@@ -1848,7 +1855,7 @@ async def delete_match(match_id: str, current_user: dict = Depends(get_current_u
 
 @api_router.post("/teams")
 async def create_team(team_data: TeamCreate, current_user: dict = Depends(get_current_user)):
-    if not current_user.get("is_premium", False):
+    if not has_unlimited(current_user):
         raise HTTPException(status_code=403, detail="Seuls les utilisateurs Premium peuvent créer une team")
     existing_team = await db.teams.find_one({
         "$or": [{"owner_id": str(current_user["_id"])}, {"member_ids": str(current_user["_id"])}]
@@ -2125,6 +2132,160 @@ async def cancel_game_night(game_night_id: str, current_user: dict = Depends(get
         raise HTTPException(status_code=403, detail="Seul le createur peut annuler")
     await db.game_nights.delete_one({"_id": game_night_oid})
     return {"message": "Game Night annule"}
+
+
+# ===================== SIGNALEMENTS + ESPACE ADMIN =====================
+# is_admin se met seulement en base (jamais modifiable par l'appli : UserProfile ne le contient pas).
+REPORT_REASONS = {
+    "insultes": "Insultes / parle mal",
+    "harcelement": "Harcèlement",
+    "faux_profil": "Faux profil",
+    "contenu": "Photo ou contenu inapproprié",
+    "mineur": "Semble avoir moins de 18 ans",
+    "arnaque": "Arnaque / spam / pub",
+    "autre": "Autre",
+}
+
+class ReportCreate(BaseModel):
+    reported_user_id: str = Field(..., max_length=30)
+    reason: str = Field(..., max_length=30)
+    details: Optional[str] = Field(None, max_length=500)
+    match_id: Optional[str] = Field(None, max_length=30)
+
+class BanRequest(BaseModel):
+    reason: Optional[str] = Field(None, max_length=300)
+
+async def require_admin(current_user: dict = Depends(get_current_user)):
+    if not current_user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Réservé à l'admin")
+    return current_user
+
+async def _match_between(a: str, b: str):
+    return await db.matches.find_one({"$or": [{"user1_id": a, "user2_id": b}, {"user1_id": b, "user2_id": a}]})
+
+@api_router.get("/reports/reasons")
+async def report_reasons():
+    return [{"id": k, "label": v} for k, v in REPORT_REASONS.items()]
+
+@api_router.post("/reports")
+async def report_user(data: ReportCreate, current_user: dict = Depends(get_current_user)):
+    uid = str(current_user["_id"])
+    target_oid = to_object_id(data.reported_user_id, "User ID")
+    if data.reported_user_id == uid:
+        raise HTTPException(status_code=400, detail="Tu ne peux pas te signaler toi-même")
+    if data.reason not in REPORT_REASONS:
+        raise HTTPException(status_code=400, detail="Motif invalide")
+    if not check_rate_limit(f"report:{uid}", max_requests=10, window_seconds=3600):
+        raise HTTPException(status_code=429, detail="Trop de signalements. Réessaie plus tard.")
+    target = await db.users.find_one({"_id": target_oid}, {"nickname": 1})
+    if not target:
+        raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
+    match_id = None
+    if data.match_id and ObjectId.is_valid(data.match_id):
+        m = await db.matches.find_one({"_id": ObjectId(data.match_id)})
+        if m and {m["user1_id"], m["user2_id"]} == {uid, data.reported_user_id}:
+            match_id = data.match_id
+    await db.reports.update_one(
+        {"reporter_id": uid, "reported_id": data.reported_user_id, "status": "open"},
+        {"$set": {"reason": data.reason, "match_id": match_id, "created_at": datetime.utcnow(),
+                  **({"details": data.details.strip()} if (data.details or "").strip() else {})}},
+        upsert=True,
+    )
+    async for adm in db.users.find({"is_admin": True}, {"push_tokens": 1}):
+        asyncio.create_task(send_push_to_user(adm, title="🚩 Nouveau signalement",
+                                              body=f"{target.get('nickname', '?')} : {REPORT_REASONS[data.reason]}",
+                                              data={"type": "report"}))
+    return {"ok": True, "message": "Merci ! Le signalement a été envoyé à l'équipe GAMELY."}
+
+def _admin_user_card(u: dict) -> dict:
+    return {
+        "id": str(u["_id"]), "nickname": u.get("nickname"), "email": u.get("email"), "photo": u.get("photo"),
+        "age": u.get("age"), "gender": u.get("gender"), "country": u.get("country"), "is_banned": bool(u.get("is_banned")),
+        "banned_reason": u.get("banned_reason"), "banned_at": u.get("banned_at"), "is_admin": bool(u.get("is_admin")),
+        "is_premium": bool(u.get("is_premium")), "created_at": u.get("created_at"),
+    }
+
+@api_router.get("/admin/reports")
+async def admin_reports(status: str = "open", admin: dict = Depends(require_admin)):
+    q = {} if status == "all" else {"status": status}
+    reps = await db.reports.find(q).sort("created_at", -1).limit(500).to_list(500)
+    groups: dict = {}
+    for r in reps:
+        groups.setdefault(r["reported_id"], []).append(r)
+    out = []
+    for reported_id, rs in groups.items():
+        if not ObjectId.is_valid(reported_id):
+            continue
+        u = await db.users.find_one({"_id": ObjectId(reported_id)})
+        if not u:
+            continue
+        items = []
+        for r in rs:
+            reporter = await db.users.find_one({"_id": ObjectId(r["reporter_id"])}, {"nickname": 1}) if ObjectId.is_valid(r["reporter_id"]) else None
+            m = await _match_between(r["reporter_id"], reported_id)
+            evidence = []
+            if m:
+                msgs = await db.messages.find({"match_id": str(m["_id"]), "sender_id": reported_id}).sort("timestamp", -1).limit(10).to_list(10)
+                for mm in reversed(msgs):
+                    t = mm.get("message_type", "text")
+                    evidence.append({"content": mm["content"][:300] if t == "text" else ("[message vocal]" if t == "audio" else f"[{t}]"),
+                                     "timestamp": mm["timestamp"]})
+            items.append({"id": str(r["_id"]), "reason": r["reason"], "reason_label": REPORT_REASONS.get(r["reason"], r["reason"]),
+                          "details": r.get("details"), "created_at": r["created_at"], "status": r.get("status"),
+                          "reporter": (reporter or {}).get("nickname", "?"), "evidence": evidence})
+        card = _admin_user_card(u)
+        card.update({"reports": items, "report_count": len(items),
+                     "violations_30d": await get_recent_violation_count(reported_id)})
+        out.append(card)
+    out.sort(key=lambda x: x["reports"][0]["created_at"], reverse=True)  # plus récent d'abord
+    out.sort(key=lambda x: -x["report_count"])  # puis les plus signalés en haut (tri stable)
+    return {
+        "users": out,
+        "open_count": await db.reports.count_documents({"status": "open"}),
+        "banned_count": await db.users.count_documents({"is_banned": True}),
+    }
+
+@api_router.get("/admin/users")
+async def admin_users(q: str = "", banned: bool = False, admin: dict = Depends(require_admin)):
+    query: dict = {}
+    if banned:
+        query["is_banned"] = True
+    q = q.strip()[:60]
+    if q:
+        rx = {"$regex": re.escape(q), "$options": "i"}
+        query["$or"] = [{"nickname": rx}, {"email": rx}]
+    if not q and not banned:
+        return []
+    users = await db.users.find(query).sort("_id", -1).limit(40).to_list(40)
+    return [_admin_user_card(u) for u in users]
+
+@api_router.post("/admin/users/{user_id}/ban")
+async def admin_ban(user_id: str, data: BanRequest, admin: dict = Depends(require_admin)):
+    oid = to_object_id(user_id, "User ID")
+    u = await db.users.find_one({"_id": oid}, {"is_admin": 1, "nickname": 1})
+    if not u:
+        raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
+    if u.get("is_admin"):
+        raise HTTPException(status_code=400, detail="Impossible de bloquer un admin")
+    await db.users.update_one({"_id": oid}, {"$set": {"is_banned": True, "banned_at": datetime.utcnow(),
+                                                      "banned_by": str(admin["_id"]), "banned_reason": (data.reason or "").strip()}})
+    await db.reports.update_many({"reported_id": user_id, "status": "open"}, {"$set": {"status": "banned", "handled_at": datetime.utcnow()}})
+    return {"ok": True, "message": f"{u.get('nickname')} est bloqué"}
+
+@api_router.post("/admin/users/{user_id}/unban")
+async def admin_unban(user_id: str, admin: dict = Depends(require_admin)):
+    oid = to_object_id(user_id, "User ID")
+    r = await db.users.update_one({"_id": oid}, {"$set": {"is_banned": False, "unbanned_at": datetime.utcnow()},
+                                                 "$unset": {"banned_reason": ""}})
+    if not r.matched_count:
+        raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
+    await db.violations.delete_many({"user_id": user_id})  # sinon 1 gros mot de plus = re-bloqué automatiquement
+    return {"ok": True}
+
+@api_router.post("/admin/reports/{user_id}/dismiss")
+async def admin_dismiss(user_id: str, admin: dict = Depends(require_admin)):
+    r = await db.reports.update_many({"reported_id": user_id, "status": "open"}, {"$set": {"status": "dismissed", "handled_at": datetime.utcnow()}})
+    return {"ok": True, "count": r.modified_count}
 
 # ===================== INCLUDE ROUTER & MIDDLEWARE =====================
 
