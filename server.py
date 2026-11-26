@@ -609,78 +609,11 @@ async def delete_account_page():
 
 @api_router.get("/privacy-policy", response_class=HTMLResponse)
 async def privacy_policy():
-    html_content = """<!DOCTYPE html>
-<html lang="fr">
-<head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>GAMELY - Politique de Confidentialité</title>
-<style>
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0A0A0F;color:#E0E0E0;line-height:1.7;padding:20px;max-width:800px;margin:0 auto}
-h1{color:#FF1493;font-size:28px;margin:30px 0 10px;border-bottom:2px solid #FF1493;padding-bottom:10px}
-h2{color:#FF1493;font-size:20px;margin:25px 0 10px}
-p,li{font-size:15px;margin-bottom:8px;color:#ccc}ul{padding-left:20px}
-</style>
-</head>
-<body>
-<h1>GAMELY - Politique de Confidentialité</h1>
-<p>Dernière mise à jour : Mai 2026</p>
+    return HTMLResponse(content=PRIVACY_POLICY_HTML)
 
-<h2>1. Données collectées</h2>
-<p>Nous collectons les données suivantes :</p>
-<ul>
-<li>Informations de compte : email, pseudonyme, mot de passe (haché)</li>
-<li>Informations de profil : âge, genre, pays, console, jeux, photo, bio</li>
-<li>Données d'utilisation : swipes, matchs, messages, statut en ligne</li>
-<li>Données de paiement : historique de transactions (sans données de carte bancaire)</li>
-<li>Comptes gaming : tags Steam, Xbox, PSN, Nintendo, Activision</li>
-</ul>
-
-<h2>2. Utilisation des données</h2>
-<p>Vos données sont utilisées pour :</p>
-<ul>
-<li>Faire fonctionner l'application et afficher des profils compatibles</li>
-<li>Gérer les matchs, messages et équipes</li>
-<li>Traiter les paiements (via Stripe et Google Play)</li>
-<li>Prévenir les abus et appliquer nos conditions d'utilisation</li>
-<li>Envoyer des emails liés au service (réinitialisation de mot de passe)</li>
-</ul>
-
-<h2>3. Conservation des données</h2>
-<p>Vos données sont conservées tant que votre compte est actif. Lors de la suppression de votre compte, toutes vos données personnelles (profil, matchs, messages, swipes) sont définitivement supprimées dans un délai de 30 jours.</p>
-
-<h2>4. Partage des données</h2>
-<p>Nous ne vendons pas vos données. Nous les partageons uniquement avec :</p>
-<ul>
-<li>Stripe (traitement des paiements)</li>
-<li>Google Play (vérification des achats)</li>
-<li>Resend (envoi d'emails)</li>
-<li>MongoDB Atlas (hébergement de la base de données)</li>
-</ul>
-
-<h2>5. Vos droits (RGPD)</h2>
-<p>Vous avez le droit de :</p>
-<ul>
-<li>Accéder à vos données personnelles</li>
-<li>Rectifier vos données inexactes</li>
-<li>Supprimer votre compte et toutes vos données</li>
-<li>Vous opposer au traitement de vos données</li>
-<li>Portabilité de vos données</li>
-</ul>
-
-<h2>6. Sécurité</h2>
-<p>Les mots de passe sont stockés de manière sécurisée (bcrypt). Les communications sont chiffrées via HTTPS. Les tokens d'authentification expirent automatiquement.</p>
-
-<h2>7. Mineurs</h2>
-<p>GAMELY est destiné aux personnes de 13 ans et plus. Les utilisateurs de moins de 18 ans doivent avoir l'accord d'un parent ou tuteur légal.</p>
-
-<h2>8. Modifications</h2>
-<p>Nous pouvons modifier cette politique à tout moment. Les modifications importantes seront notifiées par email ou dans l'application.</p>
-
-<h2>9. Contact</h2>
-<p>Pour toute question concernant vos données : <a href="mailto:contact@gamly.app" style="color:#FF1493">contact@gamly.app</a></p>
-</body>
-</html>"""
-    return HTMLResponse(content=html_content)
+@api_router.get("/terms", response_class=HTMLResponse)
+async def terms_api():
+    return HTMLResponse(content=TERMS_HTML)
 
 # ===================== AUTH ENDPOINTS =====================
 
@@ -2562,3 +2495,6 @@ async def start_game_night_scheduler():
 @app.on_event("shutdown")
 async def shutdown_db_client():
     client.close()
+
+# Pages légales à jour (25/11/2026) : Québec Loi 25, RGPD, États-Unis, Google Play, Apple
+from legal_pages import PRIVACY_HTML as PRIVACY_POLICY_HTML, TERMS_HTML  # noqa: E402
