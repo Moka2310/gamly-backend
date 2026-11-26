@@ -6,6 +6,7 @@ from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import re
+import base64
 import time
 import hmac
 import logging
@@ -174,6 +175,61 @@ class UserProfile(BaseModel):
     timezone: Optional[str] = None
     status: Optional[str] = None
     gaming_accounts: Optional[dict] = None
+
+    # --- Garde-fous (25/11) : avant, le serveur acceptait n'importe quoi (photo de 8 Mo qui n'est pas une image,
+    # lien externe pisteur, 2000 jeux, pays de 100 000 caractères, comptes gaming en objets qui font planter l'appli)
+    @field_validator('gender', 'country', 'console', 'looking_for', 'availability_start', 'availability_end', 'timezone', 'status')
+    @classmethod
+    def _short_text(cls, v):
+        if v is not None and len(v) > 80:
+            raise ValueError('Texte trop long (80 caractères max)')
+        return v
+
+    @field_validator('games', 'interests', 'languages', 'availability_periods')
+    @classmethod
+    def _short_list(cls, v):
+        if v is None:
+            return v
+        if len(v) > 150:
+            raise ValueError('Liste trop longue (150 max)')
+        if any(len(x) > 60 for x in v):
+            raise ValueError('Élément trop long (60 caractères max)')
+        return v
+
+    @field_validator('gaming_accounts')
+    @classmethod
+    def _gaming_accounts(cls, v):
+        if v is None:
+            return v
+        allowed = {'steam', 'xbox', 'psn', 'nintendo', 'activision'}
+        out = {}
+        for k, tag in v.items():
+            if k not in allowed:
+                raise ValueError(f'Plateforme inconnue : {k}')
+            if tag is None:
+                tag = ''
+            if not isinstance(tag, str) or len(tag) > 200:
+                raise ValueError('Pseudo de console invalide (texte, 200 caractères max)')
+            out[k] = tag.strip()
+        return out
+
+    @field_validator('photo')
+    @classmethod
+    def _photo(cls, v):
+        if v is None or v == '':
+            return v
+        if re.fullmatch(r'avatar:\d{1,3}', v):
+            return v
+        m = re.fullmatch(r'data:image/(jpeg|jpg|png|webp);base64,([A-Za-z0-9+/=\s]+)', v[:4_000_100])
+        if not m or len(v) > 4_000_000:
+            raise ValueError('Photo invalide (image JPEG/PNG/WEBP de 3 Mo max)')
+        try:
+            head = base64.b64decode(m.group(2)[:64] + '=' * (-len(m.group(2)[:64]) % 4))
+        except Exception:
+            raise ValueError('Photo illisible')
+        if not (head.startswith(b'\xff\xd8\xff') or head.startswith(b'\x89PNG') or (head[:4] == b'RIFF' and head[8:12] == b'WEBP') or head[4:8] == b'ftyp'):
+            raise ValueError("Ce fichier n'est pas une image")
+        return v
 
 class UserResponse(BaseModel):
     id: str
