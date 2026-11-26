@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field, EmailStr, field_validator, model_validato
 from typing import List, Literal, Optional
 import uuid
 from datetime import datetime, date, timedelta
+from zoneinfo import ZoneInfo
 import jwt
 import bcrypt
 from bson import ObjectId
@@ -381,6 +382,29 @@ def blur_gaming_accounts(accounts: dict) -> dict:
         return {}
     return {platform: blur_gamertag(tag) for platform, tag in accounts.items() if tag}
 
+FREE_DAILY_SWIPES = 10  # decision de Moka 25/11 : 10 swipes gratuits PAR JOUR (avant : 10 pour toujours, jamais recharges)
+GAMELY_TZ = ZoneInfo("America/Toronto")  # minuit heure du Quebec, meme sur Render (UTC)
+
+def gamely_today() -> str:
+    return datetime.now(GAMELY_TZ).date().isoformat()
+
+async def refresh_daily(user: dict) -> None:
+    """Recharge les swipes gratuits une fois par jour + note la derniere activite (pour Decouvrir)."""
+    upd = {}
+    today = gamely_today()
+    if user.get("last_swipe_reset") != today:
+        upd["last_swipe_reset"] = today
+        upd["swipes_today"] = 0
+        if (user.get("swipes_remaining") or 0) < FREE_DAILY_SWIPES:
+            upd["swipes_remaining"] = FREE_DAILY_SWIPES  # les packs achetes sont dans "coins", jamais touches
+    la = user.get("last_active")
+    now = datetime.utcnow()
+    if not isinstance(la, datetime) or (now - la.replace(tzinfo=None)) > timedelta(minutes=5):
+        upd["last_active"] = now
+    if upd:
+        await db.users.update_one({"_id": user["_id"]}, {"$set": upd})
+        user.update(upd)
+
 def has_unlimited(user: dict) -> bool:
     """Swipes illimites : Premium ou admin."""
     return bool(user.get("is_premium")) or bool(user.get("is_admin"))
@@ -407,6 +431,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
                 and exp + timedelta(days=2) < datetime.utcnow():
             await db.users.update_one({"_id": user["_id"]}, {"$set": {"is_premium": False}})
             user["is_premium"] = False
+        await refresh_daily(user)
         return user
     except HTTPException:
         raise  # garder 403 Compte suspendu (avant : transforme en 401 generique)
@@ -1240,7 +1265,7 @@ async def discover_profiles(
         query["games"] = game
     if availability and len(availability) > 0:
         query["availability_periods"] = {"$in": availability}
-    profiles = await db.users.find(query).limit(20).to_list(20)
+    profiles = await db.users.find(query).sort([("last_active", -1), ("_id", -1)]).limit(20).to_list(20)
     user_games = set(current_user.get("games", []))
     user_interests = set(current_user.get("interests", []))
     result = []
@@ -1279,7 +1304,7 @@ async def swipe(swipe_data: SwipeCreate, current_user: dict = Depends(get_curren
     if (current_user.get("age") or 18) < 18:
         raise HTTPException(status_code=403, detail="GAMELY est réservé aux 18 ans et plus.")
     user_id = str(current_user["_id"])
-    today = date.today().isoformat()
+    today = gamely_today()
     if current_user.get("last_swipe_reset") != today:
         await db.users.update_one(
             {"_id": current_user["_id"]},
