@@ -1114,6 +1114,10 @@ async def revenuecat_webhook(request: Request):
     uid = user["_id"]
     product = str(ev.get("product_id") or "")
     exp = _rc_ms(ev.get("expiration_at_ms"))
+    if _rc_is_premium(ev) and user.get("rc_premium_blocked"):
+        # compte demo pour la verification Apple : doit rester gratuit (achats test transferes par RevenueCat)
+        logger.info(f"RevenueCat {etype} ignore (compte demo) user={uid}")
+        return {"ok": True, "ignored": "demo"}
     if _rc_is_premium(ev):
         if etype in RC_PREMIUM_ON:
             await db.users.update_one({"_id": uid}, {"$set": {
