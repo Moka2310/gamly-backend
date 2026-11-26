@@ -1130,7 +1130,7 @@ async def revenuecat_webhook(request: Request):
                 await db.users.update_one({"_id": uid}, {"$set": {"is_premium": False, "premium_will_renew": False}})
     elif etype in ("NON_RENEWING_PURCHASE", "INITIAL_PURCHASE") and product.split(":")[0] in RC_SWIPE_PACKS:
         n = RC_SWIPE_PACKS[product.split(":")[0]]
-        await db.users.update_one({"_id": uid}, {"$inc": {"swipes_remaining": n}})
+        await db.users.update_one({"_id": uid}, {"$inc": {"coins": n}})  # packs = coins (jamais effaces a minuit)
         await db.payment_transactions.insert_one({
             "user_id": str(uid), "package_id": product, "product_id": product, "order_id": ev.get("transaction_id"),
             "amount": ev.get("price"), "currency": ev.get("currency"), "payment_status": "paid",
@@ -1685,7 +1685,7 @@ async def check_payment_status(session_id: str, current_user: dict = Depends(get
                 if package["type"] == "subscription":
                     await db.users.update_one({"_id": ObjectId(user_id)}, {"$set": {"is_premium": True}})
                 elif package["type"] == "pack":
-                    await db.users.update_one({"_id": ObjectId(user_id)}, {"$inc": {"swipes_remaining": package["coins"]}})
+                    await db.users.update_one({"_id": ObjectId(user_id)}, {"$inc": {"coins": package["coins"]}})
         else:
             await db.payment_transactions.update_one({"session_id": session_id}, {"$set": {"payment_status": payment_status}})
         return {"status": session.status, "payment_status": payment_status}
@@ -1744,7 +1744,7 @@ async def stripe_webhook(request: Request):
                         if package["type"] == "subscription":
                             await db.users.update_one({"_id": ObjectId(user_id)}, {"$set": {"is_premium": True}})
                         elif package["type"] == "pack":
-                            await db.users.update_one({"_id": ObjectId(user_id)}, {"$inc": {"swipes_remaining": package["coins"]}})
+                            await db.users.update_one({"_id": ObjectId(user_id)}, {"$inc": {"coins": package["coins"]}})
                         logger.info(f"Payment processed: user={user_id} package={result['package_id']}")
         return {"status": "ok"}
     except Exception as e:
@@ -1840,7 +1840,7 @@ async def verify_google_purchase(data: GooglePlayPurchase, current_user: dict = 
         return {"status": "success", "message": "Premium activé!", "is_premium": True}
     elif package["type"] == "pack":
         coins = package["coins"]
-        await db.users.update_one({"_id": current_user["_id"]}, {"$inc": {"swipes_remaining": coins}})
+        await db.users.update_one({"_id": current_user["_id"]}, {"$inc": {"coins": coins}})
         updated = await db.users.find_one({"_id": current_user["_id"]})
         total = updated.get("swipes_remaining", 0) + updated.get("coins", 0)
         return {"status": "success", "message": f"+{coins} swipes!", "swipes_added": coins, "total_swipes": total}
@@ -2499,7 +2499,7 @@ async def payment_success_page(session_id: str = ""):
                             if package["type"] == "subscription":
                                 await db.users.update_one({"_id": ObjectId(user_id)}, {"$set": {"is_premium": True}})
                             elif package["type"] == "pack":
-                                await db.users.update_one({"_id": ObjectId(user_id)}, {"$inc": {"swipes_remaining": package["coins"]}})
+                                await db.users.update_one({"_id": ObjectId(user_id)}, {"$inc": {"coins": package["coins"]}})
         except Exception as e:
             logger.error(f"Payment success page error: {e}")
     return PAYMENT_SUCCESS_HTML
