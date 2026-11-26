@@ -809,6 +809,10 @@ async def delete_account(data: DeleteAccountRequest, current_user: dict = Depend
         if not data.password or not verify_password(data.password, current_user["password_hash"]):
             raise HTTPException(status_code=401, detail="Mot de passe incorrect")
     user_id = current_user["_id"]
+    my_match_ids = [str(m["_id"]) for m in await db.matches.find({"$or": [{"user1_id": str(user_id)}, {"user2_id": str(user_id)}]}, {"_id": 1}).to_list(5000)]
+    if my_match_ids:
+        await db.messages.delete_many({"match_id": {"$in": my_match_ids}})
+    await db.reports.delete_many({"$or": [{"reporter_id": str(user_id)}, {"reported_id": str(user_id)}]})
     await db.matches.delete_many({"$or": [{"user1_id": str(user_id)}, {"user2_id": str(user_id)}]})
     await db.messages.delete_many({"$or": [{"sender_id": str(user_id)}, {"receiver_id": str(user_id)}]})
     await db.swipes.delete_many({"swiper_id": str(user_id)})
@@ -909,7 +913,7 @@ async def get_me(current_user: dict = Depends(get_current_user)):
         "created_at": current_user.get("created_at"),
         "email_verified": current_user.get("email_verified", True),  # True by default for accounts created before this feature
         "has_password": bool(current_user.get("password_hash")),
-        "auth_provider": "google" if current_user.get("google_sub") and not current_user.get("password_hash") else "email",
+        "auth_provider": ("apple" if current_user.get("apple_sub") else "google") if (current_user.get("google_sub") or current_user.get("apple_sub")) and not current_user.get("password_hash") else "email",
         "premium_expires_at": current_user.get("premium_expires_at"),
         "is_admin": bool(current_user.get("is_admin")),
     }
@@ -996,6 +1000,68 @@ async def auth_google(data: GoogleAuthRequest, request: Request):
             "gender": user.get("gender"), "profile_complete": is_profile_complete(user),
             "email_verified": True,
         },
+    }
+
+# ===================== CONNEXION APPLE (iPhone) =====================
+# Le jeton d'Apple est signe par Apple ; son audience = l'identifiant de l'appli (com.gamly.dating).
+APPLE_AUDIENCES = [a.strip() for a in os.environ.get("APPLE_BUNDLE_IDS", "com.gamly.dating").split(",") if a.strip()]
+_apple_jwks = None
+
+def _verify_apple_id_token(id_token: str) -> dict:
+    global _apple_jwks
+    try:
+        if _apple_jwks is None:
+            _apple_jwks = jwt.PyJWKClient("https://appleid.apple.com/auth/keys", cache_keys=True)
+        key = _apple_jwks.get_signing_key_from_jwt(id_token).key
+        info = jwt.decode(id_token, key, algorithms=["RS256"], audience=APPLE_AUDIENCES,
+                          issuer="https://appleid.apple.com", options={"require": ["exp", "iat", "sub", "aud", "iss"]})
+    except Exception as e:
+        logger.warning(f"Apple id_token refuse: {e}")
+        raise HTTPException(status_code=401, detail="Connexion Apple refusée")
+    return info
+
+class AppleAuthRequest(BaseModel):
+    id_token: str = Field(..., min_length=20, max_length=5000)
+    given_name: Optional[str] = Field(None, max_length=60)  # Apple ne donne le prenom qu'a la 1re connexion
+
+@api_router.post("/auth/apple")
+async def auth_apple(data: AppleAuthRequest, request: Request):
+    ip = get_client_ip(request)
+    if not check_rate_limit(f"apple:{ip}", max_requests=20, window_seconds=60):
+        raise HTTPException(status_code=429, detail="Trop de tentatives. Réessayez dans une minute.")
+    info = await asyncio.to_thread(_verify_apple_id_token, data.id_token)
+    sub = str(info["sub"])
+    email = (info.get("email") or "").strip().lower()
+    email_ok = bool(email) and str(info.get("email_verified")).lower() == "true"
+    user = await db.users.find_one({"apple_sub": sub})
+    is_new = False
+    if not user and email_ok:
+        user = await db.users.find_one({"email": email})  # meme e-mail -> meme compte
+        if user:
+            await db.users.update_one({"_id": user["_id"]}, {"$set": {"apple_sub": sub, "email_verified": True}})
+    if not user:
+        if not email_ok:
+            raise HTTPException(status_code=400, detail="Apple n'a pas transmis d'e-mail. Réessaie en acceptant de partager ou de masquer ton e-mail.")
+        nickname = await _free_nickname(data.given_name or email.split("@")[0])
+        user_doc = {
+            "email": email, "password_hash": None, "apple_sub": sub, "nickname": nickname,
+            "age": None, "gender": None, "country": None, "console": None, "games": [], "interests": [],
+            "languages": [], "looking_for": None, "photo": None, "bio": None,
+            "created_at": datetime.utcnow(), "swipes_remaining": FREE_DAILY_SWIPES, "swipes_today": 0,
+            "last_swipe_reset": gamely_today(), "is_premium": False, "coins": 0,
+            "email_verified": True, "push_tokens": [],
+        }
+        user_doc["_id"] = (await db.users.insert_one(user_doc)).inserted_id
+        user = user_doc
+        is_new = True
+    if user.get("is_banned"):
+        raise HTTPException(status_code=403, detail="Votre compte a été suspendu pour comportement inapproprié.")
+    user_id = str(user["_id"])
+    return {
+        "token": create_access_token(user_id),
+        "is_new": is_new,
+        "user": {"id": user_id, "email": user["email"], "nickname": user["nickname"], "gender": user.get("gender"),
+                 "profile_complete": is_profile_complete(user), "email_verified": True},
     }
 
 # ===================== ACHATS DANS L APPLI (RevenueCat) =====================
